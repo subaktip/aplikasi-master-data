@@ -3,18 +3,22 @@ import pandas as pd
 from rapidfuzz import process, fuzz
 import io
 
-st.set_page_config(layout="wide") # Agar tabel tampil lebih lebar dan lega
+st.set_page_config(layout="wide")
 st.title("🛠️ Pembersih Master Data PO Otomatis")
 st.write("Sistem otomatis penstandarisasi dan pengelompokan nama barang Purchasing.")
 st.write("---")
 
-# 1. BACA DATABASE LANGSUNG DARI SERVER (Gudang GitHub)
-# Menggunakan @st.cache_data agar server tidak nge-lag membaca excel berulang-ulang
-@st.cache_data
+# 1. BACA DATABASE LANGSUNG DARI GOOGLE SHEETS
+# Menggunakan @st.cache_data(ttl=60) agar direfresh tiap 60 detik jika atasan update data
+@st.cache_data(ttl=60)
 def load_master_data():
-    # Membaca file master_data.xlsx yang ditanam di GitHub
-    df = pd.read_excel("master_item.xlsx")
-    # JURUS RAHASIA: Memperbaiki sel kosong (merge cells) di Kategori
+    # Ini dia Link Sakti Anda yang sudah saya masukkan!
+    url_sheet = "https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-jmRg-5eq34Nejin-SaQ/export?format=csv"
+    
+    # Membaca data langsung dari internet
+    df = pd.read_csv(url_sheet) 
+    
+    # Memperbaiki sel kosong (merge cells) di Kategori
     if 'KATEGORI' in df.columns:
         df['KATEGORI'] = df['KATEGORI'].ffill()
     if 'DETAIL KATEGORI' in df.columns:
@@ -24,19 +28,16 @@ def load_master_data():
 
 try:
     df_master = load_master_data()
-    # Mengambil daftar nama baku
     list_baku = df_master['NAMA BAKU'].dropna().astype(str).tolist()
-    
-    # Membuat "Kamus" untuk memanggil Kategori berdasarkan Nama Baku
     dict_kategori = dict(zip(df_master['NAMA BAKU'], df_master['KATEGORI']))
     dict_detail = dict(zip(df_master['NAMA BAKU'], df_master['DETAIL KATEGORI']))
-except FileNotFoundError:
-    st.error("⚠️ File 'master_data.xlsx' belum ditanam di server. Silakan upload file tersebut ke GitHub Anda.")
+except Exception as e:
+    st.error(f"⚠️ Gagal membaca Google Sheets. Pastikan link sudah benar dan aksesnya 'Anyone with the link'. Error: {e}")
     st.stop()
 
 st.write("### Masukkan Data PO Kotor")
 
-# 2. TAB UNTUK PILIHAN INPUT (Tanpa perlu upload Master Data lagi)
+# 2. TAB UNTUK PILIHAN INPUT
 tab1, tab2 = st.tabs(["📋 Copy-Paste Teks (Cepat)", "📁 Upload File Excel"])
 
 df_po = None
@@ -80,7 +81,6 @@ if df_po is not None:
             if skor >= 80:
                 nama_baku = match[0]
                 hasil_nama.append(nama_baku)
-                # Panggil kategori dari kamus yang kita buat di atas
                 hasil_kategori.append(dict_kategori.get(nama_baku, "Tidak Ada Kategori"))
                 hasil_detail.append(dict_detail.get(nama_baku, "Tidak Ada Detail"))
             else:
@@ -94,7 +94,6 @@ if df_po is not None:
             hasil_detail.append("-")
             hasil_skor.append(0)
             
-    # Masukkan hasil ke dalam tabel
     df_po['Nama Baku (Hasil Mapping)'] = hasil_nama
     df_po['Kategori'] = hasil_kategori
     df_po['Detail Kategori'] = hasil_detail
