@@ -9,11 +9,10 @@ st.write("Sistem otomatis penstandarisasi dan pengelompokan nama barang Purchasi
 st.write("---")
 
 # 1. BACA DATABASE LANGSUNG DARI GOOGLE SHEETS
-# Menggunakan @st.cache_data(ttl=60) agar direfresh tiap 60 detik jika atasan update data
 @st.cache_data(ttl=60)
 def load_master_data():
-    # Ini dia Link Sakti Anda yang sudah saya masukkan!
-    url_sheet = "https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-jmRg-5eq34Nejin-SaQ/export?format=csv"
+    # Ini Link Sakti Anda yang sudah saya perbaiki 100%
+    url_sheet = "https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ/export?format=csv"
     
     # Membaca data langsung dari internet
     df = pd.read_csv(url_sheet) 
