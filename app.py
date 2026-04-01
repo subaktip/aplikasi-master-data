@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from rapidfuzz import process, fuzz
+import io  # Modul baru untuk membuat file Excel yang bisa didownload
 
 # 1. Tampilan Header Website
 st.title("🛠️ Pembersih Master Data PO")
@@ -30,11 +31,10 @@ if file_master and file_po:
     hasil_nama = []
     hasil_skor = []
     
-    # ⚠️ PERHATIAN: GANTI TULISAN 'Nama Item User' DI BAWAH INI SESUAI JUDUL KOLOM DI EXCEL ANDA
+    # ⚠️ PERHATIAN: JIKA JUDUL KOLOM DI EXCEL ASLI ANDA BUKAN INI, SILAKAN DIGANTI LAGI YA
     kolom_kotor = 'Nama Item User' 
     
     for nama_kotor in df_po[kolom_kotor]:
-        # Menggunakan token_set_ratio agar lebih pintar mengabaikan kata tambahan
         match = process.extractOne(str(nama_kotor), list_baku, scorer=fuzz.token_set_ratio)
         
         if match:
@@ -53,4 +53,20 @@ if file_master and file_po:
     
     st.write("### ✨ Hasil Pembersihan Data:")
     st.dataframe(df_po)
+
+    # 4. FITUR DOWNLOAD EXCEL (BARU)
+    st.write("---")
     
+    # Mengubah tabel hasil ke format Excel di belakang layar
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_po.to_excel(writer, index=False, sheet_name='Hasil_Mapping')
+    hasil_excel = output.getvalue()
+    
+    # Menampilkan tombol download
+    st.download_button(
+        label="📥 Download Hasil (Excel)",
+        data=hasil_excel,
+        file_name="Hasil_Pembersihan_PO.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
