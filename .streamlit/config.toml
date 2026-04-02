@@ -1,0 +1,15 @@
+[theme]
+# Warna tombol utama dan garis (Bisa disesuaikan dengan warna identitas perusahaan)
+primaryColor = "#0056b3" 
+
+# Warna background utama layar
+backgroundColor = "#ffffff" 
+
+# Warna background kotak-kotak di belakang (seperti area copy-paste)
+secondaryBackgroundColor = "#f0f2f6" 
+
+# Warna teks utama
+textColor = "#000000" 
+
+# Pilihan font: "sans serif", "serif", atau "monospace"
+font = "sans serif"
