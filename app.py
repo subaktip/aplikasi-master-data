@@ -2,16 +2,18 @@ import streamlit as st
 import pandas as pd
 from rapidfuzz import process, fuzz
 import io
+import time # <-- ALAT PENDOBRAK
 
 st.set_page_config(layout="wide")
-st.title("🛠️ Pembersih Master Data PO (Versi Pintar)")
+st.title("🛠️ Pembersih Master Data PO ")
 st.write("Sistem otomatis yang memahami nama baku resmi dan istilah/singkatan lapangan.")
 st.write("---")
 
 # 1. BACA DATABASE DARI GOOGLE SHEETS
 @st.cache_data(ttl=60)
 def load_master_data():
-    url_sheet = "https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ/export?format=csv"
+    # Trik 'Cache Buster' memaksa Google Sheets memberi data terbaru detik ini juga
+    url_sheet = f"https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ/export?format=csv&t={time.time()}"
     df = pd.read_csv(url_sheet) 
     
     if 'KATEGORI' in df.columns:
