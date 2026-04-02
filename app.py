@@ -3,25 +3,30 @@ import pandas as pd
 from rapidfuzz import process, fuzz
 import io
 
-st.set_page_config(layout="wide")
-st.title("🛠️ Pembersih Master Data PO (Versi Pintar)")
-st.write("Sistem otomatis yang memahami nama baku resmi dan istilah/singkatan lapangan.")
+# 1. KONFIGURASI HALAMAN (JUDUL DI TAB BROWSER)
+st.set_page_config(layout="wide", page_title="Master Data PO - Panca Budi", page_icon="📦")
+
+# 2. HEADER DENGAN LOGO PANCA BUDI
+col1, col2 = st.columns([1, 8]) # Membagi kolom agar logo ada di kiri
+with col1:
+    # Mengambil logo langsung dari link website Panca Budi
+    st.image("https://pancabudi.com/themes/frontend/img/logo.png", width=120)
+with col2:
+    st.title("Pembersih Master Data PO")
+    st.write("Sistem otomatis standarisasi dan pengelompokan nama barang Purchasing.")
 st.write("---")
 
-# 1. BACA DATABASE DARI GOOGLE SHEETS
+# 3. BACA DATABASE DARI GOOGLE SHEETS
 @st.cache_data(ttl=60)
 def load_master_data():
-    # Link Sakti Google Sheets Anda
     url_sheet = "https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ/export?format=csv"
     df = pd.read_csv(url_sheet) 
     
-    # Perbaiki sel Kategori yang kosong
     if 'KATEGORI' in df.columns:
         df['KATEGORI'] = df['KATEGORI'].ffill()
     if 'DETAIL KATEGORI' in df.columns:
         df['DETAIL KATEGORI'] = df['DETAIL KATEGORI'].ffill()
     
-    # Pastikan kolom KATA KUNCI terbaca oleh sistem
     if 'KATA KUNCI' not in df.columns:
         df['KATA KUNCI'] = ""
     else:
@@ -32,11 +37,9 @@ def load_master_data():
 try:
     df_master = load_master_data()
     
-    # MEMBUAT KAMUS PINTAR (Gabungan Nama Baku + Kata Kunci)
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
     list_lookup = df_master['Lookup'].tolist()
     
-    # Peta (Mapping) untuk mengembalikan hasil pencarian ke nama aslinya
     map_baku = dict(zip(df_master['Lookup'], df_master['NAMA BAKU']))
     map_kategori = dict(zip(df_master['Lookup'], df_master['KATEGORI']))
     map_detail = dict(zip(df_master['Lookup'], df_master['DETAIL KATEGORI']))
@@ -47,7 +50,7 @@ except Exception as e:
 
 st.write("### Masukkan Data PO Kotor")
 
-# 2. TAB INPUT
+# 4. TAB INPUT
 tab1, tab2 = st.tabs(["📋 Copy-Paste Teks", "📁 Upload File Excel"])
 
 df_po = None
@@ -65,25 +68,20 @@ with tab2:
     if file_po:
         df_po = pd.read_excel(file_po)
 
-# 3. LOGIKA PENCARIAN PINTAR
+# 5. LOGIKA PENCARIAN PINTAR
 if df_po is not None and kolom_kotor in df_po.columns:
     st.write("---")
     st.write("Memproses pencocokan dengan Kamus Pintar... ⚙️")
     
-    hasil_nama = []
-    hasil_kategori = []
-    hasil_detail = []
-    hasil_skor = []
+    hasil_nama, hasil_kategori, hasil_detail, hasil_skor = [], [], [], []
     
     for nama_kotor in df_po[kolom_kotor]:
-        # Mencari kecocokan di Kamus Gabungan
         match = process.extractOne(str(nama_kotor), list_lookup, scorer=fuzz.token_set_ratio)
         
         if match:
             skor = round(match[1], 2)
             kunci_ditemukan = match[0]
             
-            # Skor diturunkan ke 70 agar lebih toleran terhadap singkatan/istilah gaul
             if skor >= 70:
                 hasil_nama.append(map_baku[kunci_ditemukan])
                 hasil_kategori.append(map_kategori[kunci_ditemukan])
@@ -95,9 +93,7 @@ if df_po is not None and kolom_kotor in df_po.columns:
             hasil_skor.append(skor)
         else:
             hasil_nama.append("Tidak Ditemukan")
-            hasil_kategori.append("-")
-            hasil_detail.append("-")
-            hasil_skor.append(0)
+            hasil_kategori.append("-"); hasil_detail.append("-"); hasil_skor.append(0)
             
     df_po['Nama Baku (Hasil Mapping)'] = hasil_nama
     df_po['Kategori'] = hasil_kategori
@@ -107,7 +103,6 @@ if df_po is not None and kolom_kotor in df_po.columns:
     st.write("### ✨ Hasil Akhir:")
     st.dataframe(df_po)
 
-    # 4. DOWNLOAD EXCEL
     st.write("---")
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -116,6 +111,6 @@ if df_po is not None and kolom_kotor in df_po.columns:
     st.download_button(
         label="📥 Download Hasil (Excel)",
         data=output.getvalue(),
-        file_name="Data_PO_Bersih_Pintar.xlsx",
+        file_name="Data_PO_PancaBudi_Bersih.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
