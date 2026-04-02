@@ -3,20 +3,12 @@ import pandas as pd
 from rapidfuzz import process, fuzz
 import io
 
-# 1. KONFIGURASI HALAMAN (JUDUL DI TAB BROWSER)
-st.set_page_config(layout="wide", page_title="Master Data PO - Panca Budi", page_icon="📦")
-
-# 2. HEADER DENGAN LOGO PANCA BUDI
-col1, col2 = st.columns([1, 8]) # Membagi kolom agar logo ada di kiri
-with col1:
-    # Mengambil logo langsung dari link website Panca Budi
-   st.image("logo.png", width=120)
-with col2:
-    st.title("Pembersih Master Data PO")
-    st.write("Sistem otomatis standarisasi dan pengelompokan nama barang Purchasing.")
+st.set_page_config(layout="wide")
+st.title("🛠️ Pembersih Master Data PO (Versi Pintar)")
+st.write("Sistem otomatis yang memahami nama baku resmi dan istilah/singkatan lapangan.")
 st.write("---")
 
-# 3. BACA DATABASE DARI GOOGLE SHEETS
+# 1. BACA DATABASE DARI GOOGLE SHEETS
 @st.cache_data(ttl=60)
 def load_master_data():
     url_sheet = "https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ/export?format=csv"
@@ -50,7 +42,6 @@ except Exception as e:
 
 st.write("### Masukkan Data PO Kotor")
 
-# 4. TAB INPUT
 tab1, tab2 = st.tabs(["📋 Copy-Paste Teks", "📁 Upload File Excel"])
 
 df_po = None
@@ -68,7 +59,6 @@ with tab2:
     if file_po:
         df_po = pd.read_excel(file_po)
 
-# 5. LOGIKA PENCARIAN PINTAR
 if df_po is not None and kolom_kotor in df_po.columns:
     st.write("---")
     st.write("Memproses pencocokan dengan Kamus Pintar... ⚙️")
@@ -111,6 +101,6 @@ if df_po is not None and kolom_kotor in df_po.columns:
     st.download_button(
         label="📥 Download Hasil (Excel)",
         data=output.getvalue(),
-        file_name="Data_PO_PancaBudi_Bersih.xlsx",
+        file_name="Data_PO_Bersih_Pintar.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
