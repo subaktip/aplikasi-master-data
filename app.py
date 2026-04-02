@@ -10,7 +10,7 @@ st.set_page_config(layout="wide", page_title="Master Data PO - Panca Budi", page
 col1, col2 = st.columns([1, 8]) # Membagi kolom agar logo ada di kiri
 with col1:
     # Mengambil logo langsung dari link website Panca Budi
-    st.image("https://pancabudi.com/themes/frontend/img/logo.png", width=120)
+   st.image("logo.png", width=120)
 with col2:
     st.title("Pembersih Master Data PO")
     st.write("Sistem otomatis standarisasi dan pengelompokan nama barang Purchasing.")
