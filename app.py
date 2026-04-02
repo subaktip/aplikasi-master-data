@@ -2,19 +2,21 @@ import streamlit as st
 import pandas as pd
 from rapidfuzz import process, fuzz
 import io
-import time # <-- ALAT PENDOBRAK
+import time
 
 st.set_page_config(layout="wide")
-st.title("🛠️ Pembersih Master Data PO ")
+st.title("🛠️ Pembersih Master Data PO (Versi Pintar)")
 st.write("Sistem otomatis yang memahami nama baku resmi dan istilah/singkatan lapangan.")
 st.write("---")
 
-# 1. BACA DATABASE DARI GOOGLE SHEETS
-@st.cache_data(ttl=60)
+# 1. BACA DATABASE DENGAN MODE ANTI-BADAI
+@st.cache_data(ttl=10) # Ingatan dipendekkan jadi 10 detik saja
 def load_master_data():
-    # Trik 'Cache Buster' memaksa Google Sheets memberi data terbaru detik ini juga
-    url_sheet = f"https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ/export?format=csv&t={time.time()}"
+    url_sheet = f"https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ/export?format=csv&gid=0&t={time.time()}"
     df = pd.read_csv(url_sheet) 
+    
+    # Menghapus spasi gaib di judul kolom otomatis!
+    df.columns = df.columns.str.strip().str.upper()
     
     if 'KATEGORI' in df.columns:
         df['KATEGORI'] = df['KATEGORI'].ffill()
@@ -41,6 +43,11 @@ try:
 except Exception as e:
     st.error(f"⚠️ Gagal membaca Google Sheets. Error: {e}")
     st.stop()
+
+# 2. FITUR BARU: INTIP OTAK MESIN 👀
+with st.expander("👀 Klik di sini untuk mengintip data yang sedang dibaca oleh aplikasi:"):
+    st.info("Cari tulisan 'KNEE' di tabel bawah ini. Jika tidak ada, berarti server Google masih menahan data Anda!")
+    st.dataframe(df_master[['NAMA BAKU', 'KATA KUNCI']])
 
 st.write("### Masukkan Data PO Kotor")
 
