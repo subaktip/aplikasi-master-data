@@ -5,17 +5,16 @@ import io
 import time
 
 st.set_page_config(layout="wide")
-st.title("🛠️ Master Data ")
+st.title("🛠️ Master Data")
 st.write("Sistem otomatis yang memahami nama baku resmi dan istilah/singkatan lapangan.")
 st.write("---")
 
-# 1. BACA DATABASE DENGAN MODE ANTI-BADAI
-@st.cache_data(ttl=10) # Ingatan dipendekkan jadi 10 detik saja
+# 1. BACA DATABASE ANTI-BADAI
+@st.cache_data(ttl=10)
 def load_master_data():
     url_sheet = f"https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ/export?format=csv&gid=0&t={time.time()}"
     df = pd.read_csv(url_sheet) 
     
-    # Menghapus spasi gaib di judul kolom otomatis!
     df.columns = df.columns.str.strip().str.upper()
     
     if 'KATEGORI' in df.columns:
@@ -39,35 +38,63 @@ try:
     map_baku = dict(zip(df_master['Lookup'], df_master['NAMA BAKU']))
     map_kategori = dict(zip(df_master['Lookup'], df_master['KATEGORI']))
     map_detail = dict(zip(df_master['Lookup'], df_master['DETAIL KATEGORI']))
+    map_katakunci = dict(zip(df_master['Lookup'], df_master['KATA KUNCI']))
 
 except Exception as e:
     st.error(f"⚠️ Gagal membaca Google Sheets. Error: {e}")
     st.stop()
 
-# 2. FITUR BARU: INTIP OTAK MESIN 👀
-with st.expander("👀 Klik di sini untuk mengintip data yang sedang dibaca oleh aplikasi:"):
-    st.info("Cari tulisan 'KNEE' di tabel bawah ini. Jika tidak ada, berarti server Google masih menahan data Anda!")
-    st.dataframe(df_master[['NAMA BAKU', 'KATA KUNCI']])
-
-st.write("### Masukkan Data PO Kotor")
-
-tab1, tab2 = st.tabs(["📋 Copy-Paste Teks", "📁 Upload File Excel"])
+# 2. FITUR 3 TAB (DENGAN MESIN PENCARI BARU)
+tab1, tab2, tab3 = st.tabs(["📋 Copy-Paste PO", "📁 Upload File Excel", "🔍 Cari Barang Manual"])
 
 df_po = None
 kolom_kotor = 'Nama Item User'
 
 with tab1:
-    teks_po = st.text_area("Paste daftar nama barang di sini:", height=200)
-    if st.button("🚀 Proses Teks Copy-Paste"):
+    st.info("Gunakan tab ini untuk membersihkan banyak daftar barang sekaligus.")
+    teks_po = st.text_area("Paste daftar nama barang di sini:", height=150)
+    if st.button("🚀 Start"):
         if teks_po.strip():
             daftar_item = [item.strip() for item in teks_po.split('\n') if item.strip()]
             df_po = pd.DataFrame(daftar_item, columns=[kolom_kotor])
 
 with tab2:
+    st.info("Gunakan tab ini untuk membersihkan data dari file Excel ratusan baris.")
     file_po = st.file_uploader("Upload Excel Data Kotor", type=["xlsx"])
     if file_po:
         df_po = pd.read_excel(file_po)
 
+# --- INI FITUR PENCARIAN BARUNYA ---
+with tab3:
+    st.write("### 🔎 Mesin Pencari Master Data")
+    st.write("Ketik nama barang untuk melihat semua kecocokan di database beserta skornya.")
+    
+    kata_cari = st.text_input("Ketik nama barang atau singkatan (contoh: knee):")
+    
+    if kata_cari:
+        # Mesin mengambil 10 data paling mirip
+        hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
+        
+        data_tabel = []
+        for match in hasil_cari:
+            skor = round(match[1], 2)
+            kunci = match[0]
+            
+            # Hanya tampilkan yang skornya di atas 30% agar tidak muncul barang acak
+            if skor >= 30: 
+                data_tabel.append({
+                    "Skor Kemiripan": f"{skor}%",
+                    "Nama Baku di Sistem": map_baku[kunci],
+                    "Kata Kunci Terdaftar": map_katakunci[kunci],
+                    "Kategori": map_kategori[kunci]
+                })
+        
+        if data_tabel:
+            st.dataframe(pd.DataFrame(data_tabel), use_container_width=True)
+        else:
+            st.warning("⚠️ Tidak ada barang yang mirip di database.")
+
+# 3. PROSES PEMBERSIHAN OTOMATIS (TAB 1 & 2)
 if df_po is not None and kolom_kotor in df_po.columns:
     st.write("---")
     st.write("Memproses pencocokan dengan Kamus Pintar... ⚙️")
@@ -86,7 +113,7 @@ if df_po is not None and kolom_kotor in df_po.columns:
                 hasil_kategori.append(map_kategori[kunci_ditemukan])
                 hasil_detail.append(map_detail[kunci_ditemukan])
             else:
-                hasil_nama.append(f"⚠️ Cek Manual (Saran: {map_baku[kunci_ditemukan]}?)")
+                hasil_nama.append(f"⚠️ Cek Manual (Mungkin: {map_baku[kunci_ditemukan]})")
                 hasil_kategori.append("-")
                 hasil_detail.append("-")
             hasil_skor.append(skor)
@@ -100,7 +127,7 @@ if df_po is not None and kolom_kotor in df_po.columns:
     df_po['Akurasi (%)'] = hasil_skor
     
     st.write("### ✨ Hasil Akhir:")
-    st.dataframe(df_po)
+    st.dataframe(df_po, use_container_width=True)
 
     st.write("---")
     output = io.BytesIO()
@@ -110,6 +137,6 @@ if df_po is not None and kolom_kotor in df_po.columns:
     st.download_button(
         label="📥 Download Hasil (Excel)",
         data=output.getvalue(),
-        file_name="Data_PO_Bersih_Pintar.xlsx",
+        file_name="Data_PO_Bersih.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
