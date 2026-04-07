@@ -3,12 +3,13 @@ import pandas as pd
 from rapidfuzz import process, fuzz
 import io
 import time
+import json
+import gspread
+from google.oauth2.service_account import Credentials
 
 # 1. KONFIGURASI HALAMAN & SIDEBAR
 st.set_page_config(layout="wide", page_title="Master Data - Purchasing Regional")
 
-# --- SIDEBAR MENU ---
-# Menggunakan gambar logo.png HD dari dalam GitHub
 st.sidebar.image("logo.png", width=150) 
 st.sidebar.title("Sistem Master Data")
 st.sidebar.write("**Purchasing Regional**")
@@ -19,14 +20,27 @@ menu = st.sidebar.radio(
     ["🧹 Pembersihan Nama Baku", "📥 Update Master Data (Input)", "⚙️ Menu Tambahan (Coming Soon)"]
 )
 
+# --- FUNGSI PENGHUBUNG ROBOT GOOGLE SHEETS ---
+def get_gspread_client():
+    # Mengambil kunci rahasia dari brankas Streamlit
+    key_dict = json.loads(st.secrets["google_json"])
+    scopes = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
+    creds = Credentials.from_service_account_info(key_dict, scopes=scopes)
+    client = gspread.authorize(creds)
+    return client
+
+# ID Google Sheets Master Data Anda
+SHEET_ID = "1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ"
+
 # 2. FUNGSI LOAD DATA (DATABASE GOOGLE SHEETS)
 @st.cache_data(ttl=10)
 def load_master_data():
-    # Link Google Sheets Anda dengan sistem Anti-Badai
-    url_sheet = f"https://docs.google.com/spreadsheets/d/1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ/export?format=csv&gid=0&t={time.time()}"
+    url_sheet = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0&t={time.time()}"
     df = pd.read_csv(url_sheet)
     
-    # Bersihkan spasi gaib di judul kolom
     df.columns = df.columns.str.strip().str.upper()
     
     if 'KATEGORI' in df.columns:
@@ -41,7 +55,6 @@ def load_master_data():
         
     return df
 
-# Persiapan Data Kamus Pintar
 try:
     df_master = load_master_data()
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
@@ -64,7 +77,6 @@ if menu == "🧹 Pembersihan Nama Baku":
     st.write("Gunakan menu ini untuk menstandarisasi nama barang kotor dari user/lapangan.")
     
     tab_copy, tab_excel, tab_cari = st.tabs(["📋 Copy-Paste", "📁 Upload Excel", "🔍 Cari Manual"])
-    
     df_po = None
     kolom_kotor = 'Nama Item User'
 
@@ -82,9 +94,7 @@ if menu == "🧹 Pembersihan Nama Baku":
 
     with tab_cari:
         st.write("### 🔎 Mesin Pencari Master Data")
-        st.write("Ketik nama barang untuk melihat semua kecocokan di database beserta skornya.")
         kata_cari = st.text_input("Ketik nama barang atau singkatan (contoh: knee):")
-        
         if kata_cari:
             hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
             data_tabel = []
@@ -103,20 +113,16 @@ if menu == "🧹 Pembersihan Nama Baku":
             else:
                 st.warning("⚠️ Tidak ada barang yang mirip di database.")
 
-    # Jika ada data yang diinput (Copy-paste / Excel), lakukan pembersihan
     if df_po is not None and kolom_kotor in df_po.columns:
         st.write("---")
         st.write("Memproses pencocokan dengan Kamus Pintar... ⚙️")
-        
         hasil_nama, hasil_kategori, hasil_detail, hasil_skor = [], [], [], []
         
         for nama_kotor in df_po[kolom_kotor]:
             match = process.extractOne(str(nama_kotor), list_lookup, scorer=fuzz.token_set_ratio)
-            
             if match:
                 skor = round(match[1], 2)
                 kunci_ditemukan = match[0]
-                
                 if skor >= 70:
                     hasil_nama.append(map_baku[kunci_ditemukan])
                     hasil_kategori.append(map_kategori[kunci_ditemukan])
@@ -138,17 +144,11 @@ if menu == "🧹 Pembersihan Nama Baku":
         st.write("### ✨ Hasil Akhir:")
         st.dataframe(df_po, use_container_width=True)
 
-        st.write("---")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_po.to_excel(writer, index=False, sheet_name='Hasil_Pembersihan')
         
-        st.download_button(
-            label="📥 Download Hasil (Excel)",
-            data=output.getvalue(),
-            file_name="Data_PO_Bersih.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.download_button("📥 Download Hasil (Excel)", data=output.getvalue(), file_name="Data_PO_Bersih.xlsx")
 
 
 # ==========================================
@@ -156,41 +156,46 @@ if menu == "🧹 Pembersihan Nama Baku":
 # ==========================================
 elif menu == "📥 Update Master Data (Input)":
     st.header("Input Data ke Master Database")
-    st.info("Fitur ini digunakan untuk menambah barang baru ke dalam Master Data di Google Sheets secara otomatis.")
+    st.info("Fitur ini akan langsung mengirim data baru ke Google Sheets Panca Budi.")
     
     st.write("### Form Tambah Barang Baru")
-    
     new_nama = st.text_input("NAMA BAKU (Nama Resmi Barang):")
     
-    # 1. Dropdown Kategori Utama
     kategori_unik = sorted([str(k) for k in df_master['KATEGORI'].dropna().unique() if str(k).strip() != ""])
     new_kat = st.selectbox("KATEGORI:", kategori_unik)
     
-    # 2. Dropdown Detail Kategori (Otomatis menyesuaikan pilihan di atas)
     detail_terkait = df_master[df_master['KATEGORI'] == new_kat]['DETAIL KATEGORI'].dropna().unique()
     detail_unik = sorted([str(d) for d in detail_terkait if str(d).strip() != ""])
-    
-    # Tambahkan opsi untuk membuat detail baru jika belum ada di database
     detail_unik.append("✨ + Tambah Detail Kategori Baru...")
     
     new_detail_pilihan = st.selectbox("DETAIL KATEGORI:", detail_unik)
-    
-    # Memunculkan kolom ketik manual JIKA user memilih "Tambah Detail Baru"
     if new_detail_pilihan == "✨ + Tambah Detail Kategori Baru...":
         new_detail = st.text_input("Ketik Detail Kategori Baru:")
     else:
         new_detail = new_detail_pilihan
         
-    new_keyword = st.text_area("KATA KUNCI (Singkatan/Nama Lapangan):", help="Pisahkan dengan koma, misal: aki, battery, batere")
+    new_keyword = st.text_area("KATA KUNCI (Singkatan/Nama Lapangan):", help="Pisahkan dengan koma")
     
-    # Tombol submit menggunakan st.button biasa agar dropdown bertingkat bisa berjalan
-    submit_update = st.button("💾 Simpan ke Google Sheets")
+    submit_update = st.button("🚀 TEMBAK KE GOOGLE SHEETS!")
     
     if submit_update:
         if new_nama:
-            st.warning("Sistem sedang menyiapkan API penghubung ke Google Sheets...")
-            st.success(f"Simulasi Berhasil! Data '{new_nama}' dengan Detail '{new_detail}' siap dijadwalkan masuk ke database.")
-            st.info("Catatan: Fungsi tulis ke Google Sheets belum aktif sepenuhnya. Kita perlu men-setting API Key Google terlebih dahulu.")
+            with st.spinner("Mengirim data ke Google Sheets..."):
+                try:
+                    # Sambungkan robotnya
+                    client = get_gspread_client()
+                    sheet = client.open_by_key(SHEET_ID).sheet1
+                    
+                    # Tembakkan ke baris paling bawah (Urutan: Kategori, Detail, Nama Baku, Kata Kunci)
+                    # Note: Sesuaikan urutan array ini jika kolom di Google Sheets Anda berbeda urutannya.
+                    sheet.append_row([new_kat, new_detail, new_nama, new_keyword])
+                    
+                    st.success(f"🔥 BERHASIL! Data '{new_nama}' langsung meluncur dan tersimpan di Google Sheets!")
+                    # Membersihkan cache agar pencarian langsung terupdate
+                    st.cache_data.clear()
+                    
+                except Exception as e:
+                    st.error(f"Gagal mengirim data. Error: {e}")
         else:
             st.error("Nama Baku tidak boleh kosong!")
 
@@ -200,8 +205,4 @@ elif menu == "📥 Update Master Data (Input)":
 # ==========================================
 elif menu == "⚙️ Menu Tambahan (Coming Soon)":
     st.header("Fitur Mendatang")
-    st.write("Ruang kosong ini disiapkan untuk ekspansi sistem Purchasing Anda selanjutnya, seperti:")
-    st.write("1. Dashboard Statistik (Grafik PO per bulan)")
-    st.write("2. Laporan Perbandingan Harga Vendor")
-    st.write("3. Kalkulator SKU Otomatis")
-    st.info("Menu ini siap diisi kapan pun Anda membutuhkannya.")
+    st.write("Ruang kosong ini disiapkan untuk ekspansi sistem Purchasing Anda selanjutnya.")
