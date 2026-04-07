@@ -161,7 +161,9 @@ elif menu == "📥 Update Master Data (Input)":
     with st.form("form_input_master"):
         st.write("### Form Tambah Barang Baru")
         new_nama = st.text_input("NAMA BAKU (Nama Resmi Barang):")
-        new_kat = st.selectbox("KATEGORI:", ["ALAT BERAT (001)", "BAHAN BANGUNAN (002)", "TEKNIK (003)", "DAPUR (004)"])
+        # Mengambil daftar kategori asli secara otomatis dari Google Sheets
+        kategori_unik = sorted([str(k) for k in df_master['KATEGORI'].dropna().unique() if str(k).strip() != ""])
+        new_kat = st.selectbox("KATEGORI:", kategori_unik)
         new_detail = st.text_input("DETAIL KATEGORI:")
         new_keyword = st.text_area("KATA KUNCI (Singkatan/Nama Lapangan):", help="Pisahkan dengan koma, misal: aki, battery, batere")
         
