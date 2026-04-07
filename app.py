@@ -158,22 +158,39 @@ elif menu == "📥 Update Master Data (Input)":
     st.header("Input Data ke Master Database")
     st.info("Fitur ini digunakan untuk menambah barang baru ke dalam Master Data di Google Sheets secara otomatis.")
     
-    with st.form("form_input_master"):
-        st.write("### Form Tambah Barang Baru")
-        new_nama = st.text_input("NAMA BAKU (Nama Resmi Barang):")
-        # Mengambil daftar kategori asli secara otomatis dari Google Sheets
-        kategori_unik = sorted([str(k) for k in df_master['KATEGORI'].dropna().unique() if str(k).strip() != ""])
-        new_kat = st.selectbox("KATEGORI:", kategori_unik)
-        new_detail = st.text_input("DETAIL KATEGORI:")
-        new_keyword = st.text_area("KATA KUNCI (Singkatan/Nama Lapangan):", help="Pisahkan dengan koma, misal: aki, battery, batere")
+    st.write("### Form Tambah Barang Baru")
+    
+    new_nama = st.text_input("NAMA BAKU (Nama Resmi Barang):")
+    
+    # 1. Dropdown Kategori Utama
+    kategori_unik = sorted([str(k) for k in df_master['KATEGORI'].dropna().unique() if str(k).strip() != ""])
+    new_kat = st.selectbox("KATEGORI:", kategori_unik)
+    
+    # 2. Dropdown Detail Kategori (Otomatis menyesuaikan pilihan di atas)
+    detail_terkait = df_master[df_master['KATEGORI'] == new_kat]['DETAIL KATEGORI'].dropna().unique()
+    detail_unik = sorted([str(d) for d in detail_terkait if str(d).strip() != ""])
+    
+    # Tambahkan opsi untuk membuat detail baru jika belum ada di database
+    detail_unik.append("✨ + Tambah Detail Kategori Baru...")
+    
+    new_detail_pilihan = st.selectbox("DETAIL KATEGORI:", detail_unik)
+    
+    # Memunculkan kolom ketik manual JIKA user memilih "Tambah Detail Baru"
+    if new_detail_pilihan == "✨ + Tambah Detail Kategori Baru...":
+        new_detail = st.text_input("Ketik Detail Kategori Baru:")
+    else:
+        new_detail = new_detail_pilihan
         
-        submit_update = st.form_submit_button("💾 Simpan ke Google Sheets")
+    new_keyword = st.text_area("KATA KUNCI (Singkatan/Nama Lapangan):", help="Pisahkan dengan koma, misal: aki, battery, batere")
+    
+    # Tombol submit menggunakan st.button biasa agar dropdown bertingkat bisa berjalan
+    submit_update = st.button("💾 Simpan ke Google Sheets")
     
     if submit_update:
         if new_nama:
             st.warning("Sistem sedang menyiapkan API penghubung ke Google Sheets...")
-            st.success(f"Simulasi Berhasil! Data '{new_nama}' siap dijadwalkan masuk ke database.")
-            st.info("Catatan: Fungsi tulis ke Excel belum aktif sepenuhnya. Kita perlu men-setting API Key Google terlebih dahulu.")
+            st.success(f"Simulasi Berhasil! Data '{new_nama}' dengan Detail '{new_detail}' siap dijadwalkan masuk ke database.")
+            st.info("Catatan: Fungsi tulis ke Google Sheets belum aktif sepenuhnya. Kita perlu men-setting API Key Google terlebih dahulu.")
         else:
             st.error("Nama Baku tidak boleh kosong!")
 
