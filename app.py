@@ -5,7 +5,7 @@ import io
 import time
 
 st.set_page_config(layout="wide")
-st.title("🛠️ Pembersih Master Data PO (Versi Pintar)")
+st.title("🛠️ Master Data ")
 st.write("Sistem otomatis yang memahami nama baku resmi dan istilah/singkatan lapangan.")
 st.write("---")
 
