@@ -46,7 +46,6 @@ try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
     
-    # Forward fill untuk kategori yang di-merge (gabung cell)
     if 'KATEGORI' in df_master.columns:
         df_master['KATEGORI'] = df_master['KATEGORI'].ffill()
     if 'DETAIL KATEGORI' in df_master.columns:
@@ -54,10 +53,7 @@ try:
         
     df_master['KATA KUNCI'] = df_master.get('KATA KUNCI', "").fillna("")
     
-    # Gabungkan Nama Baku dan Kata Kunci untuk pencarian cerdas
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
-    
-    # OBAT ANTI-ERROR: Hapus paksa data ganda (duplikat) di memori robot
     master_map = df_master.drop_duplicates(subset=['NAMA BAKU']).set_index('NAMA BAKU').to_dict('index')
     
     list_lookup = df_master['Lookup'].tolist()
@@ -71,78 +67,115 @@ except Exception as e:
 # MENU 1: PEMBERSIHAN NAMA BAKU (AUTO-FILL)
 # ==========================================
 if menu == "🧹 Pembersihan Nama Baku":
-    st.header("Pembersihan & Update Laporan PO")
-    st.write("Sistem akan otomatis mendeteksi 'Nama Lapangan', mengubahnya jadi Nama Baku, dan mengisi kolom Kategori/SKU yang kosong.")
+    st.header("Pembersihan Master Data PO")
+    st.write("Gunakan menu ini untuk menstandarisasi nama barang kotor dari user/lapangan.")
     
-    file_po = st.file_uploader("Upload Excel PO User (Pastikan ada kolom NAMA ITEM, QTY, dll)", type=["xlsx"])
+    # KITA KEMBALIKAN 3 TAB YANG HILANG DI SINI
+    tab_copy, tab_excel, tab_cari = st.tabs(["📋 Copy-Paste", "📁 Upload Excel", "🔍 Cari Manual"])
     
-    if file_po:
-        df_po = pd.read_excel(file_po)
+    # --- TAB 1: COPY PASTE ---
+    with tab_copy:
+        st.write("### 📋 Mode Cepat: Copy-Paste Teks")
+        teks_po = st.text_area("Paste daftar nama barang kotor di sini (satu baris untuk satu barang):", height=150)
+        if st.button("🚀 Proses Teks"):
+            if teks_po.strip():
+                daftar_item = [item.strip() for item in teks_po.split('\n') if item.strip()]
+                hasil_teks = []
+                for nama_kotor in daftar_item:
+                    match = process.extractOne(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio)
+                    if match and match[1] >= 70:
+                        baku = lookup_to_baku[match[0]]
+                        info = master_map.get(baku, {})
+                        hasil_teks.append({
+                            "Nama Item User": nama_kotor, "Nama Baku (Sistem)": baku,
+                            "Kategori": info.get('KATEGORI', '-'), "Akurasi (%)": round(match[1], 2)
+                        })
+                    else:
+                        hasil_teks.append({
+                            "Nama Item User": nama_kotor, "Nama Baku (Sistem)": "⚠️ Tidak Ditemukan",
+                            "Kategori": "-", "Akurasi (%)": round(match[1] if match else 0, 2)
+                        })
+                st.dataframe(pd.DataFrame(hasil_teks), use_container_width=True)
+
+    # --- TAB 2: UPLOAD EXCEL ---
+    with tab_excel:
+        st.write("### 📁 Mode Lengkap: Upload & Tembak ke Laporan")
+        file_po = st.file_uploader("Upload Excel PO User (Pastikan ada kolom NAMA ITEM, QTY, dll)", type=["xlsx"])
         
-        # Cari kolom nama barang kotor
-        kolom_kotor = "NAMA ITEM"
-        if kolom_kotor not in df_po.columns.str.upper():
-            possible_cols = [c for c in df_po.columns if 'ITEM' in c.upper() or 'NAMA' in c.upper()]
-            kolom_kotor = possible_cols[0] if possible_cols else df_po.columns[0]
+        if file_po:
+            df_po = pd.read_excel(file_po)
+            kolom_kotor = "NAMA ITEM"
+            if kolom_kotor not in df_po.columns.str.upper():
+                possible_cols = [c for c in df_po.columns if 'ITEM' in c.upper() or 'NAMA' in c.upper()]
+                kolom_kotor = possible_cols[0] if possible_cols else df_po.columns[0]
 
-        if st.button("✨ Bersihkan & Lengkapi Data"):
-            hasil_rows = []
-            
-            for index, row in df_po.iterrows():
-                nama_kotor = str(row[kolom_kotor])
-                # Pencarian cerdas menggunakan Rapidfuzz
-                match = process.extractOne(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio)
-                
-                if match and match[1] >= 70: # Jika kemiripan di atas 70%
-                    baku = lookup_to_baku[match[0]]
-                    info = master_map.get(baku, {})
+            if st.button("✨ Bersihkan & Lengkapi Data Laporan"):
+                hasil_rows = []
+                for index, row in df_po.iterrows():
+                    nama_kotor = str(row[kolom_kotor])
+                    match = process.extractOne(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio)
                     
-                    # Menyusun data agar pas dengan kolom Google Sheets Anda
-                    row_data = {
-                        "NAMA ITEM": nama_kotor,
-                        "NAMA BAKU": baku,
-                        "KATEGORI": info.get('KATEGORI', '-'),
-                        "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'),
-                        "NOMOR SKU": info.get('NOMOR SKU', '-'),
-                        "KET": row.get('KET', '-'),
-                        "SATUAN": info.get('SATUAN', row.get('SATUAN', '-')), # Utamakan master data
-                        "HARGA": row.get('HARGA', 0),
-                        "QTY": row.get('QTY', 0),
-                        "VENDOR": row.get('VENDOR', '-'),
-                        "GRUP": row.get('GRUP', '-'),
-                        "TANGGAL": str(row.get('TANGGAL', '-'))
-                    }
-                else:
-                    # Jika nama terlalu ngawur / tidak ketemu di database
-                    row_data = {
-                        "NAMA ITEM": nama_kotor, "NAMA BAKU": "⚠️ CEK MANUAL",
-                        "KATEGORI": "-", "DETAIL KATEGORI": "-", "NOMOR SKU": "-",
-                        "KET": row.get('KET', '-'), "SATUAN": row.get('SATUAN', '-'),
-                        "HARGA": row.get('HARGA', 0), "QTY": row.get('QTY', 0),
-                        "VENDOR": row.get('VENDOR', '-'), "GRUP": row.get('GRUP', '-'),
-                        "TANGGAL": str(row.get('TANGGAL', '-'))
-                    }
-                hasil_rows.append(row_data)
-            
-            st.session_state['hasil_bersih'] = pd.DataFrame(hasil_rows)
-            st.success("Data berhasil dibersihkan dan dilengkapi!")
+                    if match and match[1] >= 70: 
+                        baku = lookup_to_baku[match[0]]
+                        info = master_map.get(baku, {})
+                        row_data = {
+                            "NAMA ITEM": nama_kotor, "NAMA BAKU": baku,
+                            "KATEGORI": info.get('KATEGORI', '-'), "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'),
+                            "NOMOR SKU": info.get('NOMOR SKU', '-'), "KET": row.get('KET', '-'),
+                            "SATUAN": info.get('SATUAN', row.get('SATUAN', '-')), "HARGA": row.get('HARGA', 0),
+                            "QTY": row.get('QTY', 0), "VENDOR": row.get('VENDOR', '-'),
+                            "GRUP": row.get('GRUP', '-'), "TANGGAL": str(row.get('TANGGAL', '-'))
+                        }
+                    else:
+                        row_data = {
+                            "NAMA ITEM": nama_kotor, "NAMA BAKU": "⚠️ CEK MANUAL",
+                            "KATEGORI": "-", "DETAIL KATEGORI": "-", "NOMOR SKU": "-",
+                            "KET": row.get('KET', '-'), "SATUAN": row.get('SATUAN', '-'),
+                            "HARGA": row.get('HARGA', 0), "QTY": row.get('QTY', 0),
+                            "VENDOR": row.get('VENDOR', '-'), "GRUP": row.get('GRUP', '-'),
+                            "TANGGAL": str(row.get('TANGGAL', '-'))
+                        }
+                    hasil_rows.append(row_data)
+                
+                st.session_state['hasil_bersih'] = pd.DataFrame(hasil_rows)
+                st.success("Data berhasil dibersihkan dan dilengkapi!")
 
-        if 'hasil_bersih' in st.session_state:
-            st.write("### Preview Hasil Akhir (Siap Kirim):")
-            st.dataframe(st.session_state['hasil_bersih'], use_container_width=True)
+            if 'hasil_bersih' in st.session_state:
+                st.write("### Preview Hasil Akhir (Siap Kirim):")
+                st.dataframe(st.session_state['hasil_bersih'], use_container_width=True)
 
-            if st.button("🚀 TEMBAK KE GOOGLE SHEETS Laporan PO"):
-                try:
-                    with st.spinner("Sedang mengirim..."):
-                        client = get_gspread_client()
-                        # Mengirim ke sheet Master Laporan (Tab Index 0 / Paling Kiri)
-                        sheet = client.open_by_key(SHEET_ID).get_worksheet(0) 
-                        sheet.append_rows(st.session_state['hasil_bersih'].values.tolist())
-                        
-                        st.success("🔥 BOOM! Semua data berhasil masuk ke Google Sheets!")
-                        del st.session_state['hasil_bersih']
-                except Exception as e:
-                    st.error(f"Gagal kirim: {e}")
+                if st.button("🚀 TEMBAK KE GOOGLE SHEETS Laporan PO"):
+                    try:
+                        with st.spinner("Sedang mengirim..."):
+                            client = get_gspread_client()
+                            sheet = client.open_by_key(SHEET_ID).get_worksheet(0) 
+                            sheet.append_rows(st.session_state['hasil_bersih'].values.tolist())
+                            st.success("🔥 BOOM! Semua data berhasil masuk ke Google Sheets!")
+                            del st.session_state['hasil_bersih']
+                    except Exception as e:
+                        st.error(f"Gagal kirim: {e}")
+
+    # --- TAB 3: CARI MANUAL ---
+    with tab_cari:
+        st.write("### 🔎 Mesin Pencari Master Data")
+        kata_cari = st.text_input("Ketik nama barang atau singkatan (contoh: knee, aki, kabel):")
+        if kata_cari:
+            hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
+            data_tabel = []
+            for match in hasil_cari:
+                skor = round(match[1], 2)
+                kunci = match[0]
+                if skor >= 30:
+                    baku = lookup_to_baku[kunci]
+                    info = master_map.get(baku, {})
+                    data_tabel.append({
+                        "Skor Kemiripan": f"{skor}%", "Nama Baku di Sistem": baku,
+                        "Kategori": info.get('KATEGORI', '-'), "SKU": info.get('NOMOR SKU', '-')
+                    })
+            if data_tabel:
+                st.dataframe(pd.DataFrame(data_tabel), use_container_width=True)
+            else:
+                st.warning("⚠️ Tidak ada barang yang mirip di database.")
 
 # ==========================================
 # MENU 2: UPDATE MASTER DATA (INPUT)
@@ -185,7 +218,6 @@ elif menu == "🔍 Cari Vendor":
         keyword = st.text_input("Cari Vendor / Barang:")
         
         if keyword:
-            # Cari keyword di 3 kolom sekaligus: Nama Vendor, Kategori, dan Alamat
             mask = (
                 df_vendor['NAMA VENDOR'].astype(str).str.contains(keyword, case=False, na=False) |
                 df_vendor['KATEGORI'].astype(str).str.contains(keyword, case=False, na=False) |
@@ -196,7 +228,6 @@ elif menu == "🔍 Cari Vendor":
             if not hasil.empty:
                 st.success(f"Ditemukan {len(hasil)} Vendor yang cocok!")
                 
-                # Menampilkan data dengan Expand (Bisa dilipat)
                 for _, v in hasil.iterrows():
                     with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - ({v.get('KATEGORI', '-')})"):
                         col1, col2 = st.columns(2)
