@@ -54,8 +54,6 @@ try:
     df_master['KATA KUNCI'] = df_master.get('KATA KUNCI', "").fillna("")
     
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
-    
-    # Anti-Error untuk data ganda
     master_map = df_master.drop_duplicates(subset=['NAMA BAKU']).set_index('NAMA BAKU').to_dict('index')
     
     list_lookup = df_master['Lookup'].tolist()
@@ -66,103 +64,40 @@ except Exception as e:
 
 
 # ==========================================
-# MENU 1: PEMBERSIHAN NAMA BAKU
+# MENU 1: PEMBERSIHAN NAMA BAKU (AUTO-FILL)
 # ==========================================
 if menu == "🧹 Pembersihan Nama Baku":
     st.header("Pembersihan Master Data PO")
     st.write("Gunakan menu ini untuk menstandarisasi nama barang kotor dari user/lapangan.")
     
+    # KITA KEMBALIKAN 3 TAB YANG HILANG DI SINI
     tab_copy, tab_excel, tab_cari = st.tabs(["📋 Copy-Paste", "📁 Upload Excel", "🔍 Cari Manual"])
     
-    # --- TAB 1: COPY PASTE (VERSI SMART DROPDOWN) ---
+    # --- TAB 1: COPY PASTE ---
     with tab_copy:
         st.write("### 📋 Mode Cepat: Copy-Paste Teks")
         teks_po = st.text_area("Paste daftar nama barang kotor di sini (satu baris untuk satu barang):", height=150)
-        
         if st.button("🚀 Proses Teks"):
             if teks_po.strip():
                 daftar_item = [item.strip() for item in teks_po.split('\n') if item.strip()]
-                st.session_state['daftar_item_kotor'] = daftar_item
-                st.session_state['hasil_copy_paste'] = {} 
-
-        # Jika data sudah diproses, tampilkan hasil per item
-        if 'daftar_item_kotor' in st.session_state:
-            st.write("---")
-            st.write("#### Hasil Pencocokan & Koreksi Manual")
-            st.info("Pilih Nama Baku yang paling tepat dari dropdown jika sistem kurang yakin.")
-
-            for i, nama_kotor in enumerate(st.session_state['daftar_item_kotor']):
-                col1, col2, col3 = st.columns([2, 3, 1])
-                
-                with col1:
-                    st.write(f"**Item Input:**")
-                    st.write(f"`{nama_kotor}`")
-
-                with col2:
-                    # Cari kandidat mirip
-                    hasil_cari = process.extract(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio, limit=5)
-                    kandidat_baku = []
-                    skor_tertinggi = 0
-
-                    for match in hasil_cari:
-                        skor = match[1]
+                hasil_teks = []
+                for nama_kotor in daftar_item:
+                    match = process.extractOne(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio)
+                    if match and match[1] >= 70:
                         baku = lookup_to_baku[match[0]]
-                        if skor > skor_tertinggi: skor_tertinggi = skor
-                        if baku not in kandidat_baku and skor >= 50: 
-                            kandidat_baku.append(baku)
-
-                    # Tambahan pencarian teks murni (Fallback)
-                    if len(nama_kotor) >= 3: 
-                        for baku in df_master['NAMA BAKU']:
-                            if str(baku) not in kandidat_baku and nama_kotor.lower() in str(baku).lower():
-                                kandidat_baku.append(str(baku))
-
-                    # Logika Menampilkan Pilihan
-                    if not kandidat_baku:
-                        kandidat_baku = ["⚠️ Tidak Ada Kecocokan di Master Data"]
-                        warna_status = "🔴"
-                    elif skor_tertinggi == 100 and len(nama_kotor) >= 5:
-                        warna_status = "🟢 (Aman)"
-                    else:
-                        kandidat_baku.insert(0, "Pilih Nama Baku yang Tepat...")
-                        warna_status = "🟡 (Pilih Manual)"
-
-                    # Dropdown pilihan
-                    pilihan = st.selectbox(
-                        "Nama Baku (Koreksi jika perlu):", 
-                        options=kandidat_baku, 
-                        key=f"select_{i}_{nama_kotor}"
-                    )
-                    st.session_state['hasil_copy_paste'][nama_kotor] = pilihan
-
-                with col3:
-                    st.write("**Status:**")
-                    st.write(warna_status)
-
-            # Tombol Konfirmasi Final untuk Tab 1
-            st.write("---")
-            if st.button("Simpan Hasil Koreksi ke Tabel"):
-                data_tabel = []
-                for kotor, baku in st.session_state['hasil_copy_paste'].items():
-                    if baku and baku != "Pilih Nama Baku yang Tepat..." and not baku.startswith("⚠️"):
                         info = master_map.get(baku, {})
-                        data_tabel.append({
-                            "Nama Item (Input)": kotor,
-                            "Nama Baku (Final)": baku,
-                            "Kategori": info.get('KATEGORI', '-'),
-                            "SKU": info.get('NOMOR SKU', '-')
+                        hasil_teks.append({
+                            "Nama Item User": nama_kotor, "Nama Baku (Sistem)": baku,
+                            "Kategori": info.get('KATEGORI', '-'), "Akurasi (%)": round(match[1], 2)
                         })
                     else:
-                        data_tabel.append({
-                            "Nama Item (Input)": kotor,
-                            "Nama Baku (Final)": "❌ Belum Ditentukan",
-                            "Kategori": "-",
-                            "SKU": "-"
+                        hasil_teks.append({
+                            "Nama Item User": nama_kotor, "Nama Baku (Sistem)": "⚠️ Tidak Ditemukan",
+                            "Kategori": "-", "Akurasi (%)": round(match[1] if match else 0, 2)
                         })
-                st.write("### Data Final Siap Digunakan:")
-                st.dataframe(pd.DataFrame(data_tabel), use_container_width=True)
+                st.dataframe(pd.DataFrame(hasil_teks), use_container_width=True)
 
-    # --- TAB 2: UPLOAD EXCEL (AUTO-UPLOAD KE GSHEETS) ---
+    # --- TAB 2: UPLOAD EXCEL ---
     with tab_excel:
         st.write("### 📁 Mode Lengkap: Upload & Tembak ke Laporan")
         file_po = st.file_uploader("Upload Excel PO User (Pastikan ada kolom NAMA ITEM, QTY, dll)", type=["xlsx"])
@@ -202,21 +137,21 @@ if menu == "🧹 Pembersihan Nama Baku":
                         }
                     hasil_rows.append(row_data)
                 
-                st.session_state['hasil_bersih_excel'] = pd.DataFrame(hasil_rows)
+                st.session_state['hasil_bersih'] = pd.DataFrame(hasil_rows)
                 st.success("Data berhasil dibersihkan dan dilengkapi!")
 
-            if 'hasil_bersih_excel' in st.session_state:
+            if 'hasil_bersih' in st.session_state:
                 st.write("### Preview Hasil Akhir (Siap Kirim):")
-                st.dataframe(st.session_state['hasil_bersih_excel'], use_container_width=True)
+                st.dataframe(st.session_state['hasil_bersih'], use_container_width=True)
 
                 if st.button("🚀 TEMBAK KE GOOGLE SHEETS Laporan PO"):
                     try:
                         with st.spinner("Sedang mengirim..."):
                             client = get_gspread_client()
                             sheet = client.open_by_key(SHEET_ID).get_worksheet(0) 
-                            sheet.append_rows(st.session_state['hasil_bersih_excel'].values.tolist())
+                            sheet.append_rows(st.session_state['hasil_bersih'].values.tolist())
                             st.success("🔥 BOOM! Semua data berhasil masuk ke Google Sheets!")
-                            del st.session_state['hasil_bersih_excel']
+                            del st.session_state['hasil_bersih']
                     except Exception as e:
                         st.error(f"Gagal kirim: {e}")
 
@@ -317,4 +252,3 @@ elif menu == "🔍 Cari Vendor":
 elif menu == "⚙️ Menu Tambahan":
     st.header("Fitur Mendatang")
     st.write("Ruang ini disiapkan untuk Dashboard Grafik & Rekap PO per bulan.")
-    
