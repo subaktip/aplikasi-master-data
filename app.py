@@ -57,7 +57,9 @@ try:
     # Gabungkan Nama Baku dan Kata Kunci untuk pencarian cerdas
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
     
-    master_map = df_master.set_index('NAMA BAKU').to_dict('index')
+    # OBAT ANTI-ERROR: Hapus paksa data ganda (duplikat) di memori robot
+    master_map = df_master.drop_duplicates(subset=['NAMA BAKU']).set_index('NAMA BAKU').to_dict('index')
+    
     list_lookup = df_master['Lookup'].tolist()
     lookup_to_baku = dict(zip(df_master['Lookup'], df_master['NAMA BAKU']))
 except Exception as e:
