@@ -19,9 +19,8 @@ with st.sidebar:
     st.write("**Purchasing Regional**")
     st.write("---")
     
-    # Menu Elegan (Dashboard Premium - Versi Clean)
     menu = option_menu(
-        menu_title="", # Sengaja dikosongkan agar rapi dan tidak berulang
+        menu_title="", 
         options=["Pembersihan Nama", "Update Master Data", "Cari Vendor", "Fitur Mendatang"],
         icons=["magic", "database-add", "search", "gear"], 
         default_index=0,
@@ -87,41 +86,53 @@ if menu == "Pembersihan Nama":
     st.header("Pembersihan Master Data PO")
     st.write("Gunakan menu ini untuk menstandarisasi nama barang kotor dari user/lapangan.")
     
-    # Emoji dihapus agar terlihat lebih serius/profesional
     tab_copy, tab_excel, tab_cari = st.tabs(["Copy-Paste", "Upload Excel", "Cari Manual"])
     
-    # --- TAB 1: COPY PASTE ---
+    # --- TAB 1: COPY PASTE (UPGRADED: MULTIPLE RESULTS) ---
     with tab_copy:
         st.write("### Mode Cepat: Copy-Paste Teks")
+        st.info("Ketik satu kata atau lebih. Sistem akan menampilkan semua daftar barang yang paling mendekati.")
         teks_po = st.text_area("Paste daftar nama barang kotor di sini (satu baris untuk satu barang):", height=150)
         
-        # Tombol diubah menjadi 'primary' agar menonjol
         if st.button("Proses Teks", type="primary"):
             if teks_po.strip():
                 daftar_item = [item.strip() for item in teks_po.split('\n') if item.strip()]
                 hasil_teks = []
+                
                 for nama_kotor in daftar_item:
-                    if len(nama_kotor) < 5:
+                    # Ambil 10 hasil paling mirip
+                    matches = process.extract(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
+                    
+                    ditemukan = False
+                    for match in matches:
+                        skor = round(match[1], 2)
+                        # Turunkan batas toleransi jadi 40 agar kata tunggal seperti "coolant" bisa masuk
+                        if skor >= 40: 
+                            baku = lookup_to_baku[match[0]]
+                            info = master_map.get(baku, {})
+                            
+                            # Cek agar tidak ada data kembar di dalam tabel hasil
+                            if not any(d.get('Nama Baku (Sistem)') == baku and d.get('Input User') == nama_kotor for d in hasil_teks):
+                                hasil_teks.append({
+                                    "Input User": nama_kotor, 
+                                    "Nama Baku (Sistem)": baku,
+                                    "Kategori": info.get('KATEGORI', '-'), 
+                                    "Detail Kategori": info.get('DETAIL KATEGORI', '-'),
+                                    "Akurasi (%)": skor
+                                })
+                                ditemukan = True
+                    
+                    # Jika benar-benar tidak ada yang nyangkut satupun
+                    if not ditemukan:
                         hasil_teks.append({
-                            "Nama Item User": nama_kotor, 
-                            "Nama Baku (Sistem)": "⚠️ Terlalu Pendek (Cek Manual)",
-                            "Kategori": "-", "Akurasi (%)": 0
+                            "Input User": nama_kotor, 
+                            "Nama Baku (Sistem)": "⚠️ Tidak Ditemukan",
+                            "Kategori": "-", 
+                            "Detail Kategori": "-",
+                            "Akurasi (%)": 0
                         })
-                        continue
-
-                    match = process.extractOne(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio)
-                    if match and match[1] >= 70:
-                        baku = lookup_to_baku[match[0]]
-                        info = master_map.get(baku, {})
-                        hasil_teks.append({
-                            "Nama Item User": nama_kotor, "Nama Baku (Sistem)": baku,
-                            "Kategori": info.get('KATEGORI', '-'), "Akurasi (%)": round(match[1], 2)
-                        })
-                    else:
-                        hasil_teks.append({
-                            "Nama Item User": nama_kotor, "Nama Baku (Sistem)": "⚠️ Tidak Ditemukan",
-                            "Kategori": "-", "Akurasi (%)": round(match[1] if match else 0, 2)
-                        })
+                
+                # Tampilkan sebagai tabel interaktif
                 st.dataframe(pd.DataFrame(hasil_teks), use_container_width=True)
 
     # --- TAB 2: UPLOAD EXCEL ---
