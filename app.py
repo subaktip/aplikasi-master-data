@@ -19,23 +19,23 @@ with st.sidebar:
     st.write("**Purchasing Regional**")
     st.write("---")
     
-    # Menu Elegan (Dashboard Premium)
+    # Menu Elegan (Dashboard Premium - Versi Clean)
     menu = option_menu(
-        menu_title="Navigasi Utama", 
+        menu_title="", # Sengaja dikosongkan agar rapi dan tidak berulang
         options=["Pembersihan Nama", "Update Master Data", "Cari Vendor", "Fitur Mendatang"],
-        icons=["magic", "cloud-upload", "search", "gear"], # Ikon otomatis dari Bootstrap
-        menu_icon="cast", 
+        icons=["magic", "database-add", "search", "gear"], 
         default_index=0,
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
-            "icon": {"color": "#ff9900", "font-size": "18px"}, 
+            "icon": {"color": "#2e7b32", "font-size": "16px"}, 
             "nav-link": {
-                "font-size": "15px", 
+                "font-size": "14px", 
                 "text-align": "left", 
                 "margin":"0px", 
-                "--hover-color": "#e6e6e6"
+                "--hover-color": "#e2e6ea", 
+                "border-radius": "8px" 
             },
-            "nav-link-selected": {"background-color": "#2e7b32"}, # Warna Hijau Gelap Panca Budi
+            "nav-link-selected": {"background-color": "#2e7b32", "color": "white", "icon-color": "white"},
         }
     )
 
@@ -87,14 +87,16 @@ if menu == "Pembersihan Nama":
     st.header("Pembersihan Master Data PO")
     st.write("Gunakan menu ini untuk menstandarisasi nama barang kotor dari user/lapangan.")
     
-    tab_copy, tab_excel, tab_cari = st.tabs(["📋 Copy-Paste", "📁 Upload Excel", "🔍 Cari Manual"])
+    # Emoji dihapus agar terlihat lebih serius/profesional
+    tab_copy, tab_excel, tab_cari = st.tabs(["Copy-Paste", "Upload Excel", "Cari Manual"])
     
     # --- TAB 1: COPY PASTE ---
     with tab_copy:
-        st.write("### 📋 Mode Cepat: Copy-Paste Teks")
+        st.write("### Mode Cepat: Copy-Paste Teks")
         teks_po = st.text_area("Paste daftar nama barang kotor di sini (satu baris untuk satu barang):", height=150)
         
-        if st.button("🚀 Proses Teks"):
+        # Tombol diubah menjadi 'primary' agar menonjol
+        if st.button("Proses Teks", type="primary"):
             if teks_po.strip():
                 daftar_item = [item.strip() for item in teks_po.split('\n') if item.strip()]
                 hasil_teks = []
@@ -122,9 +124,9 @@ if menu == "Pembersihan Nama":
                         })
                 st.dataframe(pd.DataFrame(hasil_teks), use_container_width=True)
 
-    # --- TAB 2: UPLOAD EXCEL (AUTO-UPLOAD) ---
+    # --- TAB 2: UPLOAD EXCEL ---
     with tab_excel:
-        st.write("### 📁 Mode Lengkap: Upload & Tembak ke Laporan")
+        st.write("### Mode Lengkap: Upload & Tembak ke Laporan")
         file_po = st.file_uploader("Upload Excel PO User (Pastikan ada kolom NAMA ITEM, QTY, dll)", type=["xlsx"])
         
         if file_po:
@@ -134,7 +136,7 @@ if menu == "Pembersihan Nama":
                 possible_cols = [c for c in df_po.columns if 'ITEM' in c.upper() or 'NAMA' in c.upper()]
                 kolom_kotor = possible_cols[0] if possible_cols else df_po.columns[0]
 
-            if st.button("✨ Bersihkan & Lengkapi Data Laporan"):
+            if st.button("Bersihkan & Lengkapi Data Laporan", type="primary"):
                 hasil_rows = []
                 for index, row in df_po.iterrows():
                     nama_kotor = str(row[kolom_kotor])
@@ -169,7 +171,7 @@ if menu == "Pembersihan Nama":
                 st.write("### Preview Hasil Akhir (Siap Kirim):")
                 st.dataframe(st.session_state['hasil_bersih_excel'], use_container_width=True)
 
-                if st.button("🚀 TEMBAK KE GOOGLE SHEETS Laporan PO"):
+                if st.button("🚀 TEMBAK KE GOOGLE SHEETS Laporan PO", type="primary"):
                     try:
                         with st.spinner("Sedang mengirim..."):
                             client = get_gspread_client()
@@ -182,7 +184,7 @@ if menu == "Pembersihan Nama":
 
     # --- TAB 3: CARI MANUAL ---
     with tab_cari:
-        st.write("### 🔎 Mesin Pencari Master Data")
+        st.write("### Mesin Pencari Master Data")
         kata_cari = st.text_input("Ketik nama barang atau singkatan (contoh: knee, aki, kabel):")
         if kata_cari:
             hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
@@ -225,7 +227,7 @@ elif menu == "Update Master Data":
         
     new_keyword = st.text_area("KATA KUNCI (Singkatan/Nama Lapangan):", help="Pisahkan dengan koma")
     
-    if st.button("💾 Simpan ke Master Data"):
+    if st.button("Simpan ke Master Data", type="primary"):
         st.warning("⚠️ Untuk keamanan data, saat ini penambahan master data langsung dilakukan dari Google Sheets.")
 
 # ==========================================
