@@ -62,7 +62,7 @@ try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
     
-    # [UPDATE BARU] Basmi baris kosong atau tulisan (blank) dari Google Sheets
+    # Bersihkan Data Kosong & Hama (blank)
     df_master = df_master.dropna(subset=['NAMA BAKU'])
     df_master = df_master[df_master['NAMA BAKU'].astype(str).str.strip().str.lower() != "(blank)"]
     
@@ -132,11 +132,18 @@ if menu == "Pembersihan Nama":
                             "Akurasi (%)": 0
                         })
                 
-                # [UPDATE BARU] Jadikan Dataframe lalu urutkan dari Akurasi Tertinggi ke Terendah
+                # Format Dataframe dan Sorting Presisi
                 df_hasil = pd.DataFrame(hasil_teks)
                 if not df_hasil.empty:
-                    # Sort berdasarkan 'Input User' dulu (agar ngumpul per barang), baru 'Akurasi' tertinggi
-                    df_hasil = df_hasil.sort_values(by=['Input User', 'Akurasi (%)'], ascending=[True, False]).reset_index(drop=True)
+                    # Pastikan Akurasi berbentuk angka murni
+                    df_hasil['Akurasi (%)'] = pd.to_numeric(df_hasil['Akurasi (%)'], errors='coerce').fillna(0)
+                    # Urutkan berdasarkan Input (A-Z) lalu Akurasi (Tinggi-Rendah)
+                    df_hasil = df_hasil.sort_values(
+                        by=['Input User', 'Akurasi (%)'], 
+                        ascending=[True, False]
+                    ).reset_index(drop=True)
+                    # Rapikan angka akurasi (opsional)
+                    df_hasil['Akurasi (%)'] = df_hasil['Akurasi (%)'].apply(lambda x: round(x, 1) if isinstance(x, (int, float)) else x)
                 
                 st.dataframe(df_hasil, use_container_width=True)
 
