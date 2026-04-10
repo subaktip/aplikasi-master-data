@@ -6,28 +6,45 @@ import time
 import json
 import gspread
 from google.oauth2.service_account import Credentials
+from streamlit_option_menu import option_menu
 
 # ==========================================
-# 1. KONFIGURASI HALAMAN & SIDEBAR
+# 1. KONFIGURASI HALAMAN & SIDEBAR ELEGAN
 # ==========================================
 st.set_page_config(layout="wide", page_title="Master Data - Purchasing Regional")
 
-st.sidebar.image("logo.png", width=150) 
-st.sidebar.title("Sistem Master Data")
-st.sidebar.write("**Purchasing Regional**")
-st.sidebar.write("---")
-
-menu = st.sidebar.radio(
-    "Pilih Layanan:",
-    ["🧹 Pembersihan Nama Baku", "📥 Update Master Data (Input)", "🔍 Cari Vendor", "⚙️ Menu Tambahan"]
-)
+with st.sidebar:
+    st.image("logo.png", width=150) 
+    st.title("Sistem Master Data")
+    st.write("**Purchasing Regional**")
+    st.write("---")
+    
+    # Menu Elegan (Dashboard Premium)
+    menu = option_menu(
+        menu_title="Navigasi Utama", 
+        options=["Pembersihan Nama", "Update Master Data", "Cari Vendor", "Fitur Mendatang"],
+        icons=["magic", "cloud-upload", "search", "gear"], # Ikon otomatis dari Bootstrap
+        menu_icon="cast", 
+        default_index=0,
+        styles={
+            "container": {"padding": "0!important", "background-color": "transparent"},
+            "icon": {"color": "#ff9900", "font-size": "18px"}, 
+            "nav-link": {
+                "font-size": "15px", 
+                "text-align": "left", 
+                "margin":"0px", 
+                "--hover-color": "#e6e6e6"
+            },
+            "nav-link-selected": {"background-color": "#2e7b32"}, # Warna Hijau Gelap Panca Budi
+        }
+    )
 
 # ==========================================
 # 2. KONFIGURASI GOOGLE SHEETS
 # ==========================================
 SHEET_ID = "1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ"
-GID_MASTER = "0"          # GID untuk Master Item (Tab 1)
-GID_VENDOR = "168217676"  # GID untuk Data Vendor (Tab 2)
+GID_MASTER = "0"          
+GID_VENDOR = "168217676"  
 
 def get_gspread_client():
     key_dict = json.loads(st.secrets["google_json"])
@@ -41,7 +58,7 @@ def load_data(gid):
     df = pd.read_csv(url)
     return df
 
-# --- PERSIAPAN KAMUS PINTAR (MASTER DATA) ---
+# --- PERSIAPAN KAMUS PINTAR ---
 try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
@@ -52,8 +69,8 @@ try:
         df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill()
         
     df_master['KATA KUNCI'] = df_master.get('KATA KUNCI', "").fillna("")
-    
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
+    
     master_map = df_master.drop_duplicates(subset=['NAMA BAKU']).set_index('NAMA BAKU').to_dict('index')
     
     list_lookup = df_master['Lookup'].tolist()
@@ -64,24 +81,32 @@ except Exception as e:
 
 
 # ==========================================
-# MENU 1: PEMBERSIHAN NAMA BAKU (AUTO-FILL)
+# MENU 1: PEMBERSIHAN NAMA BAKU
 # ==========================================
-if menu == "🧹 Pembersihan Nama Baku":
+if menu == "Pembersihan Nama":
     st.header("Pembersihan Master Data PO")
     st.write("Gunakan menu ini untuk menstandarisasi nama barang kotor dari user/lapangan.")
     
-    # KITA KEMBALIKAN 3 TAB YANG HILANG DI SINI
     tab_copy, tab_excel, tab_cari = st.tabs(["📋 Copy-Paste", "📁 Upload Excel", "🔍 Cari Manual"])
     
     # --- TAB 1: COPY PASTE ---
     with tab_copy:
         st.write("### 📋 Mode Cepat: Copy-Paste Teks")
         teks_po = st.text_area("Paste daftar nama barang kotor di sini (satu baris untuk satu barang):", height=150)
+        
         if st.button("🚀 Proses Teks"):
             if teks_po.strip():
                 daftar_item = [item.strip() for item in teks_po.split('\n') if item.strip()]
                 hasil_teks = []
                 for nama_kotor in daftar_item:
+                    if len(nama_kotor) < 5:
+                        hasil_teks.append({
+                            "Nama Item User": nama_kotor, 
+                            "Nama Baku (Sistem)": "⚠️ Terlalu Pendek (Cek Manual)",
+                            "Kategori": "-", "Akurasi (%)": 0
+                        })
+                        continue
+
                     match = process.extractOne(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio)
                     if match and match[1] >= 70:
                         baku = lookup_to_baku[match[0]]
@@ -97,7 +122,7 @@ if menu == "🧹 Pembersihan Nama Baku":
                         })
                 st.dataframe(pd.DataFrame(hasil_teks), use_container_width=True)
 
-    # --- TAB 2: UPLOAD EXCEL ---
+    # --- TAB 2: UPLOAD EXCEL (AUTO-UPLOAD) ---
     with tab_excel:
         st.write("### 📁 Mode Lengkap: Upload & Tembak ke Laporan")
         file_po = st.file_uploader("Upload Excel PO User (Pastikan ada kolom NAMA ITEM, QTY, dll)", type=["xlsx"])
@@ -137,21 +162,21 @@ if menu == "🧹 Pembersihan Nama Baku":
                         }
                     hasil_rows.append(row_data)
                 
-                st.session_state['hasil_bersih'] = pd.DataFrame(hasil_rows)
+                st.session_state['hasil_bersih_excel'] = pd.DataFrame(hasil_rows)
                 st.success("Data berhasil dibersihkan dan dilengkapi!")
 
-            if 'hasil_bersih' in st.session_state:
+            if 'hasil_bersih_excel' in st.session_state:
                 st.write("### Preview Hasil Akhir (Siap Kirim):")
-                st.dataframe(st.session_state['hasil_bersih'], use_container_width=True)
+                st.dataframe(st.session_state['hasil_bersih_excel'], use_container_width=True)
 
                 if st.button("🚀 TEMBAK KE GOOGLE SHEETS Laporan PO"):
                     try:
                         with st.spinner("Sedang mengirim..."):
                             client = get_gspread_client()
                             sheet = client.open_by_key(SHEET_ID).get_worksheet(0) 
-                            sheet.append_rows(st.session_state['hasil_bersih'].values.tolist())
+                            sheet.append_rows(st.session_state['hasil_bersih_excel'].values.tolist())
                             st.success("🔥 BOOM! Semua data berhasil masuk ke Google Sheets!")
-                            del st.session_state['hasil_bersih']
+                            del st.session_state['hasil_bersih_excel']
                     except Exception as e:
                         st.error(f"Gagal kirim: {e}")
 
@@ -180,12 +205,11 @@ if menu == "🧹 Pembersihan Nama Baku":
 # ==========================================
 # MENU 2: UPDATE MASTER DATA (INPUT)
 # ==========================================
-elif menu == "📥 Update Master Data (Input)":
+elif menu == "Update Master Data":
     st.header("Input Master Item Baru")
     st.info("Formulir untuk menambah barang baru ke Master Data.")
     
     new_nama = st.text_input("NAMA BAKU (Nama Resmi Barang):")
-    
     kategori_unik = sorted([str(k) for k in df_master['KATEGORI'].dropna().unique() if str(k).strip() != ""])
     new_kat = st.selectbox("KATEGORI:", kategori_unik)
     
@@ -207,14 +231,13 @@ elif menu == "📥 Update Master Data (Input)":
 # ==========================================
 # MENU 3: CARI VENDOR
 # ==========================================
-elif menu == "🔍 Cari Vendor":
+elif menu == "Cari Vendor":
     st.header("Database Vendor - Purchasing Regional")
     st.info("Ketik kata kunci (Nama barang, Kategori, atau Nama Vendor) untuk mencari supplier.")
     
     try:
         df_vendor = load_data(GID_VENDOR)
         df_vendor.columns = df_vendor.columns.str.strip()
-        
         keyword = st.text_input("Cari Vendor / Barang:")
         
         if keyword:
@@ -227,7 +250,6 @@ elif menu == "🔍 Cari Vendor":
             
             if not hasil.empty:
                 st.success(f"Ditemukan {len(hasil)} Vendor yang cocok!")
-                
                 for _, v in hasil.iterrows():
                     with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - ({v.get('KATEGORI', '-')})"):
                         col1, col2 = st.columns(2)
@@ -247,8 +269,8 @@ elif menu == "🔍 Cari Vendor":
         st.error(f"Gagal memuat data vendor. Pastikan GID '{GID_VENDOR}' sudah benar. Error: {e}")
 
 # ==========================================
-# MENU 4: MENU TAMBAHAN
+# MENU 4: FITUR MENDATANG
 # ==========================================
-elif menu == "⚙️ Menu Tambahan":
+elif menu == "Fitur Mendatang":
     st.header("Fitur Mendatang")
     st.write("Ruang ini disiapkan untuk Dashboard Grafik & Rekap PO per bulan.")
