@@ -62,6 +62,10 @@ try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
     
+    # [UPDATE BARU] Basmi baris kosong atau tulisan (blank) dari Google Sheets
+    df_master = df_master.dropna(subset=['NAMA BAKU'])
+    df_master = df_master[df_master['NAMA BAKU'].astype(str).str.strip().str.lower() != "(blank)"]
+    
     if 'KATEGORI' in df_master.columns:
         df_master['KATEGORI'] = df_master['KATEGORI'].ffill()
     if 'DETAIL KATEGORI' in df_master.columns:
@@ -88,10 +92,10 @@ if menu == "Pembersihan Nama":
     
     tab_copy, tab_excel, tab_cari = st.tabs(["Copy-Paste", "Upload Excel", "Cari Manual"])
     
-    # --- TAB 1: COPY PASTE (UPGRADED: MULTIPLE RESULTS) ---
+    # --- TAB 1: COPY PASTE ---
     with tab_copy:
         st.write("### Mode Cepat: Copy-Paste Teks")
-        st.info("Ketik satu kata atau lebih. Sistem akan menampilkan semua daftar barang yang paling mendekati.")
+        st.info("Ketik satu kata atau lebih. Sistem akan menampilkan daftar barang yang paling mendekati.")
         teks_po = st.text_area("Paste daftar nama barang kotor di sini (satu baris untuk satu barang):", height=150)
         
         if st.button("Proses Teks", type="primary"):
@@ -100,18 +104,15 @@ if menu == "Pembersihan Nama":
                 hasil_teks = []
                 
                 for nama_kotor in daftar_item:
-                    # Ambil 10 hasil paling mirip
                     matches = process.extract(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
                     
                     ditemukan = False
                     for match in matches:
                         skor = round(match[1], 2)
-                        # Turunkan batas toleransi jadi 40 agar kata tunggal seperti "coolant" bisa masuk
                         if skor >= 40: 
                             baku = lookup_to_baku[match[0]]
                             info = master_map.get(baku, {})
                             
-                            # Cek agar tidak ada data kembar di dalam tabel hasil
                             if not any(d.get('Nama Baku (Sistem)') == baku and d.get('Input User') == nama_kotor for d in hasil_teks):
                                 hasil_teks.append({
                                     "Input User": nama_kotor, 
@@ -122,7 +123,6 @@ if menu == "Pembersihan Nama":
                                 })
                                 ditemukan = True
                     
-                    # Jika benar-benar tidak ada yang nyangkut satupun
                     if not ditemukan:
                         hasil_teks.append({
                             "Input User": nama_kotor, 
@@ -132,8 +132,13 @@ if menu == "Pembersihan Nama":
                             "Akurasi (%)": 0
                         })
                 
-                # Tampilkan sebagai tabel interaktif
-                st.dataframe(pd.DataFrame(hasil_teks), use_container_width=True)
+                # [UPDATE BARU] Jadikan Dataframe lalu urutkan dari Akurasi Tertinggi ke Terendah
+                df_hasil = pd.DataFrame(hasil_teks)
+                if not df_hasil.empty:
+                    # Sort berdasarkan 'Input User' dulu (agar ngumpul per barang), baru 'Akurasi' tertinggi
+                    df_hasil = df_hasil.sort_values(by=['Input User', 'Akurasi (%)'], ascending=[True, False]).reset_index(drop=True)
+                
+                st.dataframe(df_hasil, use_container_width=True)
 
     # --- TAB 2: UPLOAD EXCEL ---
     with tab_excel:
