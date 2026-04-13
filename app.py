@@ -132,7 +132,6 @@ if menu == "Pembersihan Nama":
                             "Akurasi (%)": 0
                         })
                 
-                # Format Dataframe dan Sorting Presisi
                 df_hasil = pd.DataFrame(hasil_teks)
                 if not df_hasil.empty:
                     df_hasil['Akurasi (%)'] = pd.to_numeric(df_hasil['Akurasi (%)'], errors='coerce').fillna(0)
@@ -148,9 +147,13 @@ if menu == "Pembersihan Nama":
         
         if file_po:
             df_po = pd.read_excel(file_po)
+            
+            # [OBAT ANTI-NGACO] Paksa semua kolom Excel jadi huruf besar dan hilangkan spasi
+            df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
+            
             kolom_kotor = "NAMA ITEM"
-            if kolom_kotor not in df_po.columns.str.upper():
-                possible_cols = [c for c in df_po.columns if 'ITEM' in c.upper() or 'NAMA' in c.upper()]
+            if kolom_kotor not in df_po.columns:
+                possible_cols = [c for c in df_po.columns if 'ITEM' in c or 'NAMA' in c]
                 kolom_kotor = possible_cols[0] if possible_cols else df_po.columns[0]
 
             if st.button("Bersihkan & Lengkapi Data Laporan", type="primary"):
@@ -187,7 +190,6 @@ if menu == "Pembersihan Nama":
             if 'hasil_bersih_excel' in st.session_state:
                 df_hasil = st.session_state['hasil_bersih_excel']
                 
-                # --- FITUR BARU: TAB KONSOLIDASI ---
                 tab_detail, tab_rekap = st.tabs(["📄 Detail per PO", "📊 Rekap Bulanan (Konsolidasi)"])
                 
                 with tab_detail:
