@@ -57,7 +57,7 @@ def load_data(gid):
     df = pd.read_csv(url)
     return df
 
-# Fungsi bantuan untuk format Rupiah
+# Fungsi bantuan untuk format Rupiah di layar
 def format_rupiah(angka):
     try:
         return f"Rp {int(angka):,}".replace(',', '.')
@@ -69,6 +69,7 @@ try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
     
+    # Anti-Hama Data Kosong / (blank)
     df_master = df_master.dropna(subset=['NAMA BAKU'])
     df_master = df_master[df_master['NAMA BAKU'].astype(str).str.strip().str.lower() != "(blank)"]
     
@@ -114,6 +115,7 @@ if menu == "Pembersihan Nama":
                     ditemukan = False
                     for match in matches:
                         skor = round(match[1], 2)
+                        # Batas toleransi 40 agar kata tunggal bisa masuk
                         if skor >= 40: 
                             baku = lookup_to_baku[match[0]]
                             info = master_map.get(baku, {})
@@ -144,6 +146,7 @@ if menu == "Pembersihan Nama":
         
         if file_po:
             df_po = pd.read_excel(file_po)
+            # Paksa semua header Excel jadi huruf besar dan tanpa spasi
             df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
             
             kolom_kotor = "NAMA ITEM"
@@ -189,6 +192,7 @@ if menu == "Pembersihan Nama":
                 
                 with tab_detail:
                     st.write("### Preview Hasil Akhir (Detail)")
+                    # Menampilkan format Rupiah di UI
                     df_tampil_detail = df_hasil.copy()
                     df_tampil_detail['HARGA'] = df_tampil_detail['HARGA'].apply(format_rupiah)
                     st.dataframe(df_tampil_detail, use_container_width=True)
@@ -213,6 +217,7 @@ if menu == "Pembersihan Nama":
                         kolom_tampil = ['NAMA BAKU', 'KATEGORI', 'TOTAL_QTY', 'SATUAN', 'HARGA_RATA_RATA', 'HARGA_TERTINGGI', 'FREKUENSI_ORDER']
                         df_tampil_rekap = df_group[kolom_tampil].copy()
                         
+                        # Menampilkan format Rupiah untuk Rekap
                         df_tampil_rekap['HARGA_RATA_RATA'] = df_tampil_rekap['HARGA_RATA_RATA'].apply(format_rupiah)
                         df_tampil_rekap['HARGA_TERTINGGI'] = df_tampil_rekap['HARGA_TERTINGGI'].apply(format_rupiah)
                         
@@ -223,15 +228,16 @@ if menu == "Pembersihan Nama":
 
                 if st.button("🚀 TEMBAK KE GOOGLE SHEETS Laporan PO", type="primary"):
                     try:
-                        with st.spinner("Sedang mengirim (Angka murni disuntik ke Sheets)..."):
+                        with st.spinner("Sedang mengirim ke Sheet3..."):
                             client = get_gspread_client()
-                            sheet = client.open_by_key(SHEET_ID).get_worksheet(0) 
+                            # [UPDATE FINAL] Tembak langsung ke Tab bernama "Sheet3"
+                            sheet = client.open_by_key(SHEET_ID).worksheet("Sheet3") 
                             
-                            # [INI OBATNYA: Mengubah sel NaN / kosong dari Excel menjadi teks kosong agar diterima Google Sheets]
+                            # Obat Anti-NaN (Mengubah sel kosong menjadi teks kosong agar aman)
                             df_to_send = df_hasil.fillna("") 
                             
                             sheet.append_rows(df_to_send.values.tolist())
-                            st.success("🔥 BOOM! Semua data berhasil masuk ke Google Sheets dengan aman!")
+                            st.success("🔥 BOOM! Semua data berhasil masuk ke Sheet3 dengan aman!")
                             del st.session_state['hasil_bersih_excel']
                     except Exception as e:
                         st.error(f"Gagal kirim: {e}")
