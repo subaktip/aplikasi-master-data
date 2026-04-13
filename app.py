@@ -109,11 +109,12 @@ if menu == "Pembersihan Nama":
         
         if file_po:
             try:
-                # 1. Deteksi Header Otomatis (Cari baris mana yang ada kata 'NAMA BARANG')
+                # 1. Deteksi Header Otomatis
                 raw_excel = pd.read_excel(file_po, header=None)
                 header_idx = -1
                 for i, row in raw_excel.iterrows():
-                    row_str = " ".join(row.astype(str).upper())
+                    # PERBAIKAN BUG DI SINI (Posisi kurung diperbaiki)
+                    row_str = " ".join(row.astype(str)).upper()
                     if 'NAMA BARANG' in row_str or 'NAMA ITEM' in row_str:
                         header_idx = i
                         break
@@ -140,19 +141,18 @@ if menu == "Pembersihan Nama":
                         val_ref = str(row[col_ref]) if not pd.isna(row[col_ref]) else ""
                         val_barang = str(row[col_barang]) if not pd.isna(row[col_barang]) else ""
                         
-                        # Logika Tangkap Vendor (Baris dimana barang kosong tapi kolom ref ada teks)
+                        # Logika Tangkap Vendor
                         if (not val_barang or val_barang.lower() == 'nan') and val_ref and val_ref.lower() != 'nan':
                             if "JUMLAH" not in val_ref.upper() and "SUBTOTAL" not in val_ref.upper(): 
                                 vendor_saat_ini = val_ref
                         
-                        # Logika Tangkap Tanggal (Jika ada kolom tanggal dan isinya valid)
+                        # Logika Tangkap Tanggal
                         if col_tgl and not pd.isna(row[col_tgl[0]]) and str(row[col_tgl[0]]).lower() != 'nan':
                             tgl_val = str(row[col_tgl[0]])
-                            # Hindari menangkap angka QTY nyasar sebagai tanggal
                             if len(tgl_val) > 4: 
                                 tgl_saat_ini = tgl_val
                         
-                        # Logika Simpan Barang (Jika baris punya nama barang)
+                        # Logika Simpan Barang
                         if val_barang and val_barang.lower() != 'nan' and "JUMLAH" not in val_barang.upper() and "SUBTOTAL" not in val_barang.upper():
                             qty_val = row[col_qty_name] if col_qty_name else 0
                             harga_val = row[col_harga_name] if col_harga_name else 0
@@ -237,7 +237,6 @@ if menu == "Pembersihan Nama":
                 except Exception as e:
                     st.warning(f"Gagal memproses rekap. Pastikan ada angka di QTY dan Harga. Error: {e}")
 
-# (Menu Cari Vendor & Update Master Data tetap sama)
 elif menu == "Cari Vendor":
     st.header("Database Vendor")
     keyword = st.text_input("Cari Vendor / Barang:")
