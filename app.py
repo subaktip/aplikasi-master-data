@@ -135,19 +135,13 @@ if menu == "Pembersihan Nama":
                 # Format Dataframe dan Sorting Presisi
                 df_hasil = pd.DataFrame(hasil_teks)
                 if not df_hasil.empty:
-                    # Pastikan Akurasi berbentuk angka murni
                     df_hasil['Akurasi (%)'] = pd.to_numeric(df_hasil['Akurasi (%)'], errors='coerce').fillna(0)
-                    # Urutkan berdasarkan Input (A-Z) lalu Akurasi (Tinggi-Rendah)
-                    df_hasil = df_hasil.sort_values(
-                        by=['Input User', 'Akurasi (%)'], 
-                        ascending=[True, False]
-                    ).reset_index(drop=True)
-                    # Rapikan angka akurasi (opsional)
+                    df_hasil = df_hasil.sort_values(by=['Input User', 'Akurasi (%)'], ascending=[True, False]).reset_index(drop=True)
                     df_hasil['Akurasi (%)'] = df_hasil['Akurasi (%)'].apply(lambda x: round(x, 1) if isinstance(x, (int, float)) else x)
                 
                 st.dataframe(df_hasil, use_container_width=True)
 
-    # --- TAB 2: UPLOAD EXCEL ---
+    # --- TAB 2: UPLOAD EXCEL (DENGAN KONSOLIDASI REKAP) ---
     with tab_excel:
         st.write("### Mode Lengkap: Upload & Tembak ke Laporan")
         file_po = st.file_uploader("Upload Excel PO User (Pastikan ada kolom NAMA ITEM, QTY, dll)", type=["xlsx"])
@@ -191,8 +185,37 @@ if menu == "Pembersihan Nama":
                 st.success("Data berhasil dibersihkan dan dilengkapi!")
 
             if 'hasil_bersih_excel' in st.session_state:
-                st.write("### Preview Hasil Akhir (Siap Kirim):")
-                st.dataframe(st.session_state['hasil_bersih_excel'], use_container_width=True)
+                df_hasil = st.session_state['hasil_bersih_excel']
+                
+                # --- FITUR BARU: TAB KONSOLIDASI ---
+                tab_detail, tab_rekap = st.tabs(["📄 Detail per PO", "📊 Rekap Bulanan (Konsolidasi)"])
+                
+                with tab_detail:
+                    st.write("### Preview Hasil Akhir (Detail)")
+                    st.dataframe(df_hasil, use_container_width=True)
+                
+                with tab_rekap:
+                    st.write("### Rekapitulasi Pengadaan per Item")
+                    try:
+                        df_rekap = df_hasil.copy()
+                        df_rekap['QTY'] = pd.to_numeric(df_rekap['QTY'], errors='coerce').fillna(0)
+                        df_rekap['HARGA'] = pd.to_numeric(df_rekap['HARGA'], errors='coerce').fillna(0)
+                        df_rekap['TOTAL_NILAI'] = df_rekap['QTY'] * df_rekap['HARGA']
+                        
+                        df_group = df_rekap.groupby(['NAMA BAKU', 'KATEGORI', 'SATUAN']).agg(
+                            TOTAL_QTY=('QTY', 'sum'),
+                            TOTAL_BELANJA=('TOTAL_NILAI', 'sum'),
+                            HARGA_TERTINGGI=('HARGA', 'max'),
+                            FREKUENSI_ORDER=('NAMA BAKU', 'count')
+                        ).reset_index()
+                        
+                        df_group['HARGA_RATA_RATA'] = (df_group['TOTAL_BELANJA'] / df_group['TOTAL_QTY']).fillna(0).round(0)
+                        
+                        kolom_tampil = ['NAMA BAKU', 'KATEGORI', 'TOTAL_QTY', 'SATUAN', 'HARGA_RATA_RATA', 'HARGA_TERTINGGI', 'FREKUENSI_ORDER']
+                        st.dataframe(df_group[kolom_tampil], use_container_width=True)
+                        st.info("💡 **Tips:** Tabel ini menjumlahkan total QTY dari semua Plant/User yang memesan barang dengan Nama Baku yang sama. Sangat berguna untuk negosiasi ke vendor!")
+                    except Exception as e:
+                        st.warning("Gagal membuat rekap. Pastikan file Excel memiliki kolom 'QTY' dan 'HARGA' yang berisi angka.")
 
                 if st.button("🚀 TEMBAK KE GOOGLE SHEETS Laporan PO", type="primary"):
                     try:
