@@ -123,7 +123,7 @@ if menu == "Pembersihan Nama":
         
         if file_po:
             try:
-                # Coba baca dengan asumsi format ERP (loncat 7 baris)
+                # [SKENARIO A]: Baca format ERP (loncat 7 baris)
                 df_po = pd.read_excel(file_po, skiprows=7)
                 df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
                 if not ('NAMA BARANG' in df_po.columns):
@@ -135,20 +135,37 @@ if menu == "Pembersihan Nama":
                 df_po = df_po.dropna(subset=['NAMA BARANG'])
                 
                 kolom_kotor = 'NAMA BARANG'
-                df_po['QTY_FINAL'] = df_po.get('QTY1', 0)
+                
+                # [UPDATE PINTAR]: Cari kolom QTY apapun namanya (QTY1, QTY2, dll)
+                qty_cols = [c for c in df_po.columns if 'QTY' in c]
+                df_po['QTY_FINAL'] = df_po[qty_cols[0]] if qty_cols else 0
+                
                 df_po['HARGA_FINAL'] = df_po.get('HARGA', 0)
                 df_po['VENDOR_FINAL'] = df_po['VENDOR_ASLI']
-                st.success("🤖 Format ERP (.xls/.xlsx) terdeteksi dan otomatis dirapikan!")
+                
+                # [UPDATE PINTAR]: Cari kolom Tanggal/Tgl apapun namanya
+                tgl_cols = [c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c]
+                df_po['TANGGAL_FINAL'] = df_po[tgl_cols[0]] if tgl_cols else '-'
+                
+                st.success("🤖 Format ERP (.xls/.xlsx) terdeteksi. Kolom Qty & Tanggal otomatis disesuaikan!")
             except:
-                # Jika gagal, baca sebagai Excel standar
+                # [SKENARIO B]: Jika gagal, baca sebagai Excel standar
                 file_po.seek(0)
                 df_po = pd.read_excel(file_po)
                 df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
+                
                 possible_cols = [c for c in df_po.columns if 'ITEM' in c or 'NAMA' in c]
                 kolom_kotor = possible_cols[0] if possible_cols else df_po.columns[0]
-                df_po['QTY_FINAL'] = df_po.get('QTY', 0)
+                
+                qty_cols = [c for c in df_po.columns if 'QTY' in c]
+                df_po['QTY_FINAL'] = df_po[qty_cols[0]] if qty_cols else 0
+                
                 df_po['HARGA_FINAL'] = df_po.get('HARGA', 0)
                 df_po['VENDOR_FINAL'] = df_po.get('VENDOR', '-')
+                
+                tgl_cols = [c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c]
+                df_po['TANGGAL_FINAL'] = df_po[tgl_cols[0]] if tgl_cols else '-'
+                
                 st.success("📄 File Excel standar terdeteksi.")
 
             if st.button("Bersihkan & Lengkapi Data Laporan", type="primary"):
@@ -163,7 +180,7 @@ if menu == "Pembersihan Nama":
                             "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'), "NOMOR SKU": info.get('NOMOR SKU', '-'),
                             "SATUAN": info.get('SATUAN', row.get('SATUAN', '-')), "HARGA": row.get('HARGA_FINAL', 0), 
                             "QTY": row.get('QTY_FINAL', 0), "VENDOR": row.get('VENDOR_FINAL', '-'),
-                            "GRUP": row.get('GRUP', '-'), "TANGGAL": str(row.get('TANGGAL', '-'))
+                            "GRUP": row.get('GRUP', '-'), "TANGGAL": str(row.get('TANGGAL_FINAL', '-'))
                         }
                     else:
                         row_data = {
@@ -171,7 +188,7 @@ if menu == "Pembersihan Nama":
                             "DETAIL KATEGORI": "-", "NOMOR SKU": "-", "SATUAN": row.get('SATUAN', '-'), 
                             "HARGA": row.get('HARGA_FINAL', 0), "QTY": row.get('QTY_FINAL', 0), 
                             "VENDOR": row.get('VENDOR_FINAL', '-'), "GRUP": row.get('GRUP', '-'),
-                            "TANGGAL": str(row.get('TANGGAL', '-'))
+                            "TANGGAL": str(row.get('TANGGAL_FINAL', '-'))
                         }
                     hasil_rows.append(row_data)
                 st.session_state['hasil_bersih_excel'] = pd.DataFrame(hasil_rows)
@@ -212,10 +229,8 @@ if menu == "Pembersihan Nama":
                         with st.spinner("Sedang mengirim ke Tab Paling Kanan..."):
                             client = get_gspread_client()
                             spreadsheet = client.open_by_key(SHEET_ID)
-                            # Menembak ke Tab Paling Kanan [-1]
                             sheet = spreadsheet.worksheets()[-1] 
                             
-                            # Anti-NaN: Ubah sel kosong/error jadi teks kosong ("")
                             df_to_send = df_hasil.fillna("") 
                             sheet.append_rows(df_to_send.values.tolist())
                             
