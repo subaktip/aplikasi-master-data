@@ -57,12 +57,18 @@ def load_data(gid):
     df = pd.read_csv(url)
     return df
 
+# Fungsi bantuan untuk format Rupiah
+def format_rupiah(angka):
+    try:
+        return f"Rp {int(angka):,}".replace(',', '.')
+    except:
+        return "Rp 0"
+
 # --- PERSIAPAN KAMUS PINTAR ---
 try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
     
-    # Bersihkan Data Kosong & Hama (blank)
     df_master = df_master.dropna(subset=['NAMA BAKU'])
     df_master = df_master[df_master['NAMA BAKU'].astype(str).str.strip().str.lower() != "(blank)"]
     
@@ -105,31 +111,23 @@ if menu == "Pembersihan Nama":
                 
                 for nama_kotor in daftar_item:
                     matches = process.extract(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
-                    
                     ditemukan = False
                     for match in matches:
                         skor = round(match[1], 2)
                         if skor >= 40: 
                             baku = lookup_to_baku[match[0]]
                             info = master_map.get(baku, {})
-                            
                             if not any(d.get('Nama Baku (Sistem)') == baku and d.get('Input User') == nama_kotor for d in hasil_teks):
                                 hasil_teks.append({
-                                    "Input User": nama_kotor, 
-                                    "Nama Baku (Sistem)": baku,
-                                    "Kategori": info.get('KATEGORI', '-'), 
-                                    "Detail Kategori": info.get('DETAIL KATEGORI', '-'),
+                                    "Input User": nama_kotor, "Nama Baku (Sistem)": baku,
+                                    "Kategori": info.get('KATEGORI', '-'), "Detail Kategori": info.get('DETAIL KATEGORI', '-'),
                                     "Akurasi (%)": skor
                                 })
                                 ditemukan = True
-                    
                     if not ditemukan:
                         hasil_teks.append({
-                            "Input User": nama_kotor, 
-                            "Nama Baku (Sistem)": "⚠️ Tidak Ditemukan",
-                            "Kategori": "-", 
-                            "Detail Kategori": "-",
-                            "Akurasi (%)": 0
+                            "Input User": nama_kotor, "Nama Baku (Sistem)": "⚠️ Tidak Ditemukan",
+                            "Kategori": "-", "Detail Kategori": "-", "Akurasi (%)": 0
                         })
                 
                 df_hasil = pd.DataFrame(hasil_teks)
@@ -137,18 +135,15 @@ if menu == "Pembersihan Nama":
                     df_hasil['Akurasi (%)'] = pd.to_numeric(df_hasil['Akurasi (%)'], errors='coerce').fillna(0)
                     df_hasil = df_hasil.sort_values(by=['Input User', 'Akurasi (%)'], ascending=[True, False]).reset_index(drop=True)
                     df_hasil['Akurasi (%)'] = df_hasil['Akurasi (%)'].apply(lambda x: round(x, 1) if isinstance(x, (int, float)) else x)
-                
                 st.dataframe(df_hasil, use_container_width=True)
 
-    # --- TAB 2: UPLOAD EXCEL (DENGAN KONSOLIDASI REKAP) ---
+    # --- TAB 2: UPLOAD EXCEL ---
     with tab_excel:
         st.write("### Mode Lengkap: Upload & Tembak ke Laporan")
         file_po = st.file_uploader("Upload Excel PO User (Pastikan ada kolom NAMA ITEM, QTY, dll)", type=["xlsx"])
         
         if file_po:
             df_po = pd.read_excel(file_po)
-            
-            # [OBAT ANTI-NGACO] Paksa semua kolom Excel jadi huruf besar dan hilangkan spasi
             df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
             
             kolom_kotor = "NAMA ITEM"
@@ -194,7 +189,10 @@ if menu == "Pembersihan Nama":
                 
                 with tab_detail:
                     st.write("### Preview Hasil Akhir (Detail)")
-                    st.dataframe(df_hasil, use_container_width=True)
+                    # [TAMPILAN RUPIAH] Format khusus tampilan di web, data asli tetap angka
+                    df_tampil_detail = df_hasil.copy()
+                    df_tampil_detail['HARGA'] = df_tampil_detail['HARGA'].apply(format_rupiah)
+                    st.dataframe(df_tampil_detail, use_container_width=True)
                 
                 with tab_rekap:
                     st.write("### Rekapitulasi Pengadaan per Item")
@@ -214,18 +212,25 @@ if menu == "Pembersihan Nama":
                         df_group['HARGA_RATA_RATA'] = (df_group['TOTAL_BELANJA'] / df_group['TOTAL_QTY']).fillna(0).round(0)
                         
                         kolom_tampil = ['NAMA BAKU', 'KATEGORI', 'TOTAL_QTY', 'SATUAN', 'HARGA_RATA_RATA', 'HARGA_TERTINGGI', 'FREKUENSI_ORDER']
-                        st.dataframe(df_group[kolom_tampil], use_container_width=True)
-                        st.info("💡 **Tips:** Tabel ini menjumlahkan total QTY dari semua Plant/User yang memesan barang dengan Nama Baku yang sama. Sangat berguna untuk negosiasi ke vendor!")
+                        df_tampil_rekap = df_group[kolom_tampil].copy()
+                        
+                        # [TAMPILAN RUPIAH] Format Harga untuk Rekap
+                        df_tampil_rekap['HARGA_RATA_RATA'] = df_tampil_rekap['HARGA_RATA_RATA'].apply(format_rupiah)
+                        df_tampil_rekap['HARGA_TERTINGGI'] = df_tampil_rekap['HARGA_TERTINGGI'].apply(format_rupiah)
+                        
+                        st.dataframe(df_tampil_rekap, use_container_width=True)
+                        st.info("💡 **Tips:** Tabel ini menjumlahkan total QTY dari semua Plant yang memesan barang yang sama. Sangat berguna untuk negosiasi ke vendor!")
                     except Exception as e:
                         st.warning("Gagal membuat rekap. Pastikan file Excel memiliki kolom 'QTY' dan 'HARGA' yang berisi angka.")
 
                 if st.button("🚀 TEMBAK KE GOOGLE SHEETS Laporan PO", type="primary"):
                     try:
-                        with st.spinner("Sedang mengirim..."):
+                        with st.spinner("Sedang mengirim (Angka murni disuntik ke Sheets)..."):
                             client = get_gspread_client()
                             sheet = client.open_by_key(SHEET_ID).get_worksheet(0) 
+                            # Mengirim data ASLI (Angka) bukan data TAMPILAN (Rupiah)
                             sheet.append_rows(st.session_state['hasil_bersih_excel'].values.tolist())
-                            st.success("🔥 BOOM! Semua data berhasil masuk ke Google Sheets!")
+                            st.success("🔥 BOOM! Semua data berhasil masuk ke Google Sheets dengan aman!")
                             del st.session_state['hasil_bersih_excel']
                     except Exception as e:
                         st.error(f"Gagal kirim: {e}")
