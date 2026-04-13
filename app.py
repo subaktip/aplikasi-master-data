@@ -67,47 +67,35 @@ def format_rupiah(angka):
 try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
-    
     df_master = df_master.dropna(subset=['NAMA BAKU'])
     df_master = df_master[df_master['NAMA BAKU'].astype(str).str.strip().str.lower() != "(blank)"]
-    
     if 'KATEGORI' in df_master.columns:
         df_master['KATEGORI'] = df_master['KATEGORI'].ffill()
     if 'DETAIL KATEGORI' in df_master.columns:
         df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill()
-        
     df_master['KATA KUNCI'] = df_master.get('KATA KUNCI', "").fillna("")
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
-    
     master_map = df_master.drop_duplicates(subset=['NAMA BAKU']).set_index('NAMA BAKU').to_dict('index')
-    
     list_lookup = df_master['Lookup'].tolist()
     lookup_to_baku = dict(zip(df_master['Lookup'], df_master['NAMA BAKU']))
 except Exception as e:
     st.error(f"⚠️ Gagal Load Master Data: {e}")
     st.stop()
 
-
 # ==========================================
 # MENU 1: PEMBERSIHAN NAMA BAKU
 # ==========================================
 if menu == "Pembersihan Nama":
     st.header("Pembersihan Master Data PO")
-    st.write("Gunakan menu ini untuk menstandarisasi nama barang kotor dari user/lapangan.")
-    
     tab_copy, tab_excel, tab_cari = st.tabs(["Copy-Paste", "Upload Excel", "Cari Manual"])
     
-    # --- TAB 1: COPY PASTE ---
     with tab_copy:
         st.write("### Mode Cepat: Copy-Paste Teks")
-        st.info("Ketik satu kata atau lebih. Sistem akan menampilkan daftar barang yang paling mendekati.")
-        teks_po = st.text_area("Paste daftar nama barang kotor di sini (satu baris untuk satu barang):", height=150)
-        
+        teks_po = st.text_area("Paste daftar nama barang kotor di sini:", height=150)
         if st.button("Proses Teks", type="primary"):
             if teks_po.strip():
                 daftar_item = [item.strip() for item in teks_po.split('\n') if item.strip()]
                 hasil_teks = []
-                
                 for nama_kotor in daftar_item:
                     matches = process.extract(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
                     ditemukan = False
@@ -117,17 +105,10 @@ if menu == "Pembersihan Nama":
                             baku = lookup_to_baku[match[0]]
                             info = master_map.get(baku, {})
                             if not any(d.get('Nama Baku (Sistem)') == baku and d.get('Input User') == nama_kotor for d in hasil_teks):
-                                hasil_teks.append({
-                                    "Input User": nama_kotor, "Nama Baku (Sistem)": baku,
-                                    "Kategori": info.get('KATEGORI', '-'), "Detail Kategori": info.get('DETAIL KATEGORI', '-'),
-                                    "Akurasi (%)": skor
-                                })
+                                hasil_teks.append({"Input User": nama_kotor, "Nama Baku (Sistem)": baku, "Kategori": info.get('KATEGORI', '-'), "Detail Kategori": info.get('DETAIL KATEGORI', '-'), "Akurasi (%)": skor})
                                 ditemukan = True
                     if not ditemukan:
-                        hasil_teks.append({
-                            "Input User": nama_kotor, "Nama Baku (Sistem)": "⚠️ Tidak Ditemukan",
-                            "Kategori": "-", "Detail Kategori": "-", "Akurasi (%)": 0
-                        })
+                        hasil_teks.append({"Input User": nama_kotor, "Nama Baku (Sistem)": "⚠️ Tidak Ditemukan", "Kategori": "-", "Detail Kategori": "-", "Akurasi (%)": 0})
                 
                 df_hasil = pd.DataFrame(hasil_teks)
                 if not df_hasil.empty:
@@ -136,48 +117,35 @@ if menu == "Pembersihan Nama":
                     df_hasil['Akurasi (%)'] = df_hasil['Akurasi (%)'].apply(lambda x: round(x, 1) if isinstance(x, (int, float)) else x)
                 st.dataframe(df_hasil, use_container_width=True)
 
-    # --- TAB 2: UPLOAD EXCEL (DENGAN KECERDASAN BACA ERP) ---
     with tab_excel:
         st.write("### Mode Lengkap: Upload & Tembak ke Laporan")
-        file_po = st.file_uploader("Upload Excel PO User (Bisa File Biasa ATAU Format Laporan ERP)", type=["xlsx"])
+        file_po = st.file_uploader("Upload Excel (Format .xlsx atau .xls ERP)", type=["xlsx", "xls"])
         
         if file_po:
             try:
-                # [SKENARIO A]: Coba baca sebagai format sistem ERP (Loncat 7 Baris)
+                # Coba baca dengan asumsi format ERP (loncat 7 baris)
                 df_po = pd.read_excel(file_po, skiprows=7)
                 df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
-                
-                # Cek apakah judul kolomnya cocok dengan format ERP
-                if not ('NO BUKTI' in df_po.columns and 'NAMA BARANG' in df_po.columns):
+                if not ('NAMA BARANG' in df_po.columns):
                     raise ValueError("Bukan format ERP")
                 
-                # 1. Menarik Nama Vendor yang menggantung
-                df_po['VENDOR_ASLI'] = df_po['NO BUKTI'].where(df_po['NAMA BARANG'].isna())
-                df_po['VENDOR_ASLI'] = df_po['VENDOR_ASLI'].ffill()
-                
-                # 2. Hapus baris Subtotal (Baris yang ada tulisan "Jumlah...")
+                df_po['VENDOR_ASLI'] = df_po['NO BUKTI'].where(df_po['NAMA BARANG'].isna()).ffill()
                 df_po = df_po[~df_po['NO BUKTI'].astype(str).str.contains("Jumlah", case=False, na=False)]
                 df_po = df_po[~df_po['NAMA BARANG'].astype(str).str.contains("Jumlah", case=False, na=False)]
-                
-                # 3. Buang baris kosong
                 df_po = df_po.dropna(subset=['NAMA BARANG'])
                 
-                # 4. Standardisasi Kolom untuk Robot
                 kolom_kotor = 'NAMA BARANG'
-                df_po['QTY_FINAL'] = df_po.get('QTY1', 0) # Ambil QTY1 jika ada
+                df_po['QTY_FINAL'] = df_po.get('QTY1', 0)
                 df_po['HARGA_FINAL'] = df_po.get('HARGA', 0)
                 df_po['VENDOR_FINAL'] = df_po['VENDOR_ASLI']
-                st.success("🤖 File ERP terdeteksi! Sistem otomatis meratakan dan menghapus baris subtotal.")
-                
+                st.success("🤖 Format ERP (.xls/.xlsx) terdeteksi dan otomatis dirapikan!")
             except:
-                # [SKENARIO B]: Jika gagal, baca sebagai file Excel biasa
-                file_po.seek(0) # Reset file reader
+                # Jika gagal, baca sebagai Excel standar
+                file_po.seek(0)
                 df_po = pd.read_excel(file_po)
                 df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
-                
                 possible_cols = [c for c in df_po.columns if 'ITEM' in c or 'NAMA' in c]
                 kolom_kotor = possible_cols[0] if possible_cols else df_po.columns[0]
-                
                 df_po['QTY_FINAL'] = df_po.get('QTY', 0)
                 df_po['HARGA_FINAL'] = df_po.get('HARGA', 0)
                 df_po['VENDOR_FINAL'] = df_po.get('VENDOR', '-')
@@ -185,50 +153,37 @@ if menu == "Pembersihan Nama":
 
             if st.button("Bersihkan & Lengkapi Data Laporan", type="primary"):
                 hasil_rows = []
-                for index, row in df_po.iterrows():
+                for _, row in df_po.iterrows():
                     nama_kotor = str(row[kolom_kotor])
                     match = process.extractOne(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio)
-                    
                     if match and match[1] >= 70: 
-                        baku = lookup_to_baku[match[0]]
-                        info = master_map.get(baku, {})
+                        baku = lookup_to_baku[match[0]]; info = master_map.get(baku, {})
                         row_data = {
-                            "NAMA ITEM": nama_kotor, "NAMA BAKU": baku,
-                            "KATEGORI": info.get('KATEGORI', '-'), "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'),
-                            "NOMOR SKU": info.get('NOMOR SKU', '-'), "KET": row.get('KET', '-'),
-                            "SATUAN": info.get('SATUAN', row.get('SATUAN', '-')), 
-                            "HARGA": row.get('HARGA_FINAL', 0), # Pakai data yang sudah difilter
-                            "QTY": row.get('QTY_FINAL', 0),     # Pakai data yang sudah difilter
-                            "VENDOR": row.get('VENDOR_FINAL', '-'), # Pakai vendor hasil ffill
+                            "NAMA ITEM": nama_kotor, "NAMA BAKU": baku, "KATEGORI": info.get('KATEGORI', '-'), 
+                            "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'), "NOMOR SKU": info.get('NOMOR SKU', '-'),
+                            "SATUAN": info.get('SATUAN', row.get('SATUAN', '-')), "HARGA": row.get('HARGA_FINAL', 0), 
+                            "QTY": row.get('QTY_FINAL', 0), "VENDOR": row.get('VENDOR_FINAL', '-'),
                             "GRUP": row.get('GRUP', '-'), "TANGGAL": str(row.get('TANGGAL', '-'))
                         }
                     else:
                         row_data = {
-                            "NAMA ITEM": nama_kotor, "NAMA BAKU": "⚠️ CEK MANUAL",
-                            "KATEGORI": "-", "DETAIL KATEGORI": "-", "NOMOR SKU": "-",
-                            "KET": row.get('KET', '-'), "SATUAN": row.get('SATUAN', '-'),
-                            "HARGA": row.get('HARGA_FINAL', 0), "QTY": row.get('QTY_FINAL', 0),
+                            "NAMA ITEM": nama_kotor, "NAMA BAKU": "⚠️ CEK MANUAL", "KATEGORI": "-", 
+                            "DETAIL KATEGORI": "-", "NOMOR SKU": "-", "SATUAN": row.get('SATUAN', '-'), 
+                            "HARGA": row.get('HARGA_FINAL', 0), "QTY": row.get('QTY_FINAL', 0), 
                             "VENDOR": row.get('VENDOR_FINAL', '-'), "GRUP": row.get('GRUP', '-'),
                             "TANGGAL": str(row.get('TANGGAL', '-'))
                         }
                     hasil_rows.append(row_data)
-                
                 st.session_state['hasil_bersih_excel'] = pd.DataFrame(hasil_rows)
-                st.success("Selesai! Data mentah berhasil disulap menjadi Laporan Bersih!")
 
             if 'hasil_bersih_excel' in st.session_state:
                 df_hasil = st.session_state['hasil_bersih_excel']
-                
-                tab_detail, tab_rekap = st.tabs(["📄 Detail per PO", "📊 Rekap Bulanan (Konsolidasi)"])
-                
-                with tab_detail:
-                    st.write("### Preview Hasil Akhir (Detail)")
-                    df_tampil_detail = df_hasil.copy()
-                    df_tampil_detail['HARGA'] = df_tampil_detail['HARGA'].apply(format_rupiah)
-                    st.dataframe(df_tampil_detail, use_container_width=True)
-                
-                with tab_rekap:
-                    st.write("### Rekapitulasi Pengadaan per Item")
+                tab_dtl, tab_rkp = st.tabs(["📄 Detail per PO", "📊 Rekap Bulanan"])
+                with tab_dtl:
+                    df_t_dtl = df_hasil.copy()
+                    df_t_dtl['HARGA'] = df_t_dtl['HARGA'].apply(format_rupiah)
+                    st.dataframe(df_t_dtl, use_container_width=True)
+                with tab_rkp:
                     try:
                         df_rekap = df_hasil.copy()
                         df_rekap['QTY'] = pd.to_numeric(df_rekap['QTY'], errors='coerce').fillna(0)
@@ -236,42 +191,39 @@ if menu == "Pembersihan Nama":
                         df_rekap['TOTAL_NILAI'] = df_rekap['QTY'] * df_rekap['HARGA']
                         
                         df_group = df_rekap.groupby(['NAMA BAKU', 'KATEGORI', 'SATUAN']).agg(
-                            TOTAL_QTY=('QTY', 'sum'),
-                            TOTAL_BELANJA=('TOTAL_NILAI', 'sum'),
-                            HARGA_TERTINGGI=('HARGA', 'max'),
-                            FREKUENSI_ORDER=('NAMA BAKU', 'count')
+                            TOTAL_QTY=('QTY', 'sum'), TOTAL_BELANJA=('TOTAL_NILAI', 'sum'),
+                            HARGA_TERTINGGI=('HARGA', 'max'), FREKUENSI_ORDER=('NAMA BAKU', 'count')
                         ).reset_index()
                         
                         df_group['HARGA_RATA_RATA'] = (df_group['TOTAL_BELANJA'] / df_group['TOTAL_QTY']).fillna(0).round(0)
                         
                         kolom_tampil = ['NAMA BAKU', 'KATEGORI', 'TOTAL_QTY', 'SATUAN', 'HARGA_RATA_RATA', 'HARGA_TERTINGGI', 'FREKUENSI_ORDER']
                         df_tampil_rekap = df_group[kolom_tampil].copy()
-                        
                         df_tampil_rekap['HARGA_RATA_RATA'] = df_tampil_rekap['HARGA_RATA_RATA'].apply(format_rupiah)
                         df_tampil_rekap['HARGA_TERTINGGI'] = df_tampil_rekap['HARGA_TERTINGGI'].apply(format_rupiah)
                         
                         st.dataframe(df_tampil_rekap, use_container_width=True)
                         st.info("💡 **Tips:** Tabel ini menjumlahkan total QTY dari semua Plant/Vendor untuk barang yang sama.")
                     except Exception as e:
-                        st.warning("Gagal membuat rekap. Pastikan ada angka di kolom QTY dan HARGA.")
+                        st.warning("Gagal membuat rekap. Pastikan file Excel memiliki kolom yang berisi angka untuk QTY dan HARGA.")
 
-                if st.button("🚀 TEMBAK KE GOOGLE SHEETS Laporan PO", type="primary"):
+                if st.button("🚀 TEMBAK KE GOOGLE SHEETS", type="primary"):
                     try:
-                        with st.spinner("Sedang mengirim ke Tab Paling Ujung Kanan..."):
+                        with st.spinner("Sedang mengirim ke Tab Paling Kanan..."):
                             client = get_gspread_client()
-                            # Menembak ke Tab urutan Paling Kanan (-1)
                             spreadsheet = client.open_by_key(SHEET_ID)
-                            sheet = spreadsheet.worksheets()[-1]
+                            # Menembak ke Tab Paling Kanan [-1]
+                            sheet = spreadsheet.worksheets()[-1] 
                             
+                            # Anti-NaN: Ubah sel kosong/error jadi teks kosong ("")
                             df_to_send = df_hasil.fillna("") 
                             sheet.append_rows(df_to_send.values.tolist())
                             
                             st.success(f"🔥 BOOM! Semua data berhasil mendarat dengan aman di tab '{sheet.title}'!")
                             del st.session_state['hasil_bersih_excel']
-                    except Exception as e:
+                    except Exception as e: 
                         st.error(f"Gagal kirim: {e}")
 
-    # --- TAB 3: CARI MANUAL ---
     with tab_cari:
         st.write("### Mesin Pencari Master Data")
         kata_cari = st.text_input("Ketik nama barang atau singkatan (contoh: knee, aki, kabel):")
