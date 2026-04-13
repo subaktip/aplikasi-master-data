@@ -189,7 +189,6 @@ if menu == "Pembersihan Nama":
                 
                 with tab_detail:
                     st.write("### Preview Hasil Akhir (Detail)")
-                    # [TAMPILAN RUPIAH] Format khusus tampilan di web, data asli tetap angka
                     df_tampil_detail = df_hasil.copy()
                     df_tampil_detail['HARGA'] = df_tampil_detail['HARGA'].apply(format_rupiah)
                     st.dataframe(df_tampil_detail, use_container_width=True)
@@ -214,7 +213,6 @@ if menu == "Pembersihan Nama":
                         kolom_tampil = ['NAMA BAKU', 'KATEGORI', 'TOTAL_QTY', 'SATUAN', 'HARGA_RATA_RATA', 'HARGA_TERTINGGI', 'FREKUENSI_ORDER']
                         df_tampil_rekap = df_group[kolom_tampil].copy()
                         
-                        # [TAMPILAN RUPIAH] Format Harga untuk Rekap
                         df_tampil_rekap['HARGA_RATA_RATA'] = df_tampil_rekap['HARGA_RATA_RATA'].apply(format_rupiah)
                         df_tampil_rekap['HARGA_TERTINGGI'] = df_tampil_rekap['HARGA_TERTINGGI'].apply(format_rupiah)
                         
@@ -228,8 +226,11 @@ if menu == "Pembersihan Nama":
                         with st.spinner("Sedang mengirim (Angka murni disuntik ke Sheets)..."):
                             client = get_gspread_client()
                             sheet = client.open_by_key(SHEET_ID).get_worksheet(0) 
-                            # Mengirim data ASLI (Angka) bukan data TAMPILAN (Rupiah)
-                            sheet.append_rows(st.session_state['hasil_bersih_excel'].values.tolist())
+                            
+                            # [INI OBATNYA: Mengubah sel NaN / kosong dari Excel menjadi teks kosong agar diterima Google Sheets]
+                            df_to_send = df_hasil.fillna("") 
+                            
+                            sheet.append_rows(df_to_send.values.tolist())
                             st.success("🔥 BOOM! Semua data berhasil masuk ke Google Sheets dengan aman!")
                             del st.session_state['hasil_bersih_excel']
                     except Exception as e:
