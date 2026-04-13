@@ -231,7 +231,7 @@ if menu == "Pembersihan Nama":
                         with st.spinner("Sedang mengirim ke Sheet3..."):
                             client = get_gspread_client()
                             # [UPDATE FINAL] Tembak langsung ke Tab bernama "Sheet3"
-                            sheet = client.open_by_key(SHEET_ID).worksheet("Sheet3") 
+                            sheet = client.open_by_key(SHEET_ID).get_worksheet(2)
                             
                             # Obat Anti-NaN (Mengubah sel kosong menjadi teks kosong agar aman)
                             df_to_send = df_hasil.fillna("") 
