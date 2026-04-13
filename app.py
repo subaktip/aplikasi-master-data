@@ -109,12 +109,12 @@ if menu == "Pembersihan Nama":
         
         if file_po:
             try:
-                # 1. Deteksi Header Otomatis
+                # 1. Deteksi Header Otomatis (Tahan Banting terhadap Angka/Float)
                 raw_excel = pd.read_excel(file_po, header=None)
                 header_idx = -1
                 for i, row in raw_excel.iterrows():
-                    # PERBAIKAN BUG DI SINI (Posisi kurung diperbaiki)
-                    row_str = " ".join(row.astype(str)).upper()
+                    # PERBAIKAN BUG: Pastikan setiap sel diubah jadi string dulu sebelum digabung
+                    row_str = " ".join([str(val).upper() for val in row.values])
                     if 'NAMA BARANG' in row_str or 'NAMA ITEM' in row_str:
                         header_idx = i
                         break
@@ -237,6 +237,9 @@ if menu == "Pembersihan Nama":
                 except Exception as e:
                     st.warning(f"Gagal memproses rekap. Pastikan ada angka di QTY dan Harga. Error: {e}")
 
+# ==========================================
+# MENU 3: CARI VENDOR
+# ==========================================
 elif menu == "Cari Vendor":
     st.header("Database Vendor")
     keyword = st.text_input("Cari Vendor / Barang:")
@@ -252,6 +255,9 @@ elif menu == "Cari Vendor":
             else: st.warning("Vendor tidak ditemukan.")
         except Exception as e: st.error("Gagal Load Vendor")
 
+# ==========================================
+# MENU 4: UPDATE MASTER DATA
+# ==========================================
 elif menu == "Update Master Data":
     st.header("Input Master Item Baru")
     st.info("Formulir untuk menambah barang baru ke Master Data.")
@@ -275,6 +281,9 @@ elif menu == "Update Master Data":
     if st.button("Simpan ke Master Data", type="primary"):
         st.warning("⚠️ Untuk keamanan data, saat ini penambahan master data langsung dilakukan dari Google Sheets.")
 
+# ==========================================
+# MENU 5: FITUR MENDATANG
+# ==========================================
 elif menu == "Fitur Mendatang":
     st.header("Fitur Mendatang")
     st.write("Ruang ini disiapkan untuk Dashboard Grafik & Rekap PO per bulan.")
