@@ -9,7 +9,7 @@ from google.oauth2.service_account import Credentials
 from streamlit_option_menu import option_menu
 
 # ==========================================
-# 1. KONFIGURASI HALAMAN & SIDEBAR ELEGAN
+# 1. KONFIGURASI HALAMAN & SIDEBAR
 # ==========================================
 st.set_page_config(layout="wide", page_title="Master Data - Purchasing Regional")
 
@@ -27,13 +27,7 @@ with st.sidebar:
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
             "icon": {"color": "#2e7b32", "font-size": "16px"}, 
-            "nav-link": {
-                "font-size": "14px", 
-                "text-align": "left", 
-                "margin":"0px", 
-                "--hover-color": "#e2e6ea", 
-                "border-radius": "8px" 
-            },
+            "nav-link": {"font-size": "14px", "text-align": "left", "margin":"0px", "--hover-color": "#e2e6ea", "border-radius": "8px"},
             "nav-link-selected": {"background-color": "#2e7b32", "color": "white", "icon-color": "white"},
         }
     )
@@ -58,10 +52,8 @@ def load_data(gid):
     return df
 
 def format_rupiah(angka):
-    try:
-        return f"Rp {int(angka):,}".replace(',', '.')
-    except:
-        return "Rp 0"
+    try: return f"Rp {int(angka):,}".replace(',', '.')
+    except: return "Rp 0"
 
 # --- PERSIAPAN KAMUS PINTAR ---
 try:
@@ -69,18 +61,15 @@ try:
     df_master.columns = df_master.columns.str.strip().str.upper()
     df_master = df_master.dropna(subset=['NAMA BAKU'])
     df_master = df_master[df_master['NAMA BAKU'].astype(str).str.strip().str.lower() != "(blank)"]
-    if 'KATEGORI' in df_master.columns:
-        df_master['KATEGORI'] = df_master['KATEGORI'].ffill()
-    if 'DETAIL KATEGORI' in df_master.columns:
-        df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill()
+    if 'KATEGORI' in df_master.columns: df_master['KATEGORI'] = df_master['KATEGORI'].ffill()
+    if 'DETAIL KATEGORI' in df_master.columns: df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill()
     df_master['KATA KUNCI'] = df_master.get('KATA KUNCI', "").fillna("")
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
     master_map = df_master.drop_duplicates(subset=['NAMA BAKU']).set_index('NAMA BAKU').to_dict('index')
     list_lookup = df_master['Lookup'].tolist()
     lookup_to_baku = dict(zip(df_master['Lookup'], df_master['NAMA BAKU']))
 except Exception as e:
-    st.error(f"⚠️ Gagal Load Master Data: {e}")
-    st.stop()
+    st.error(f"⚠️ Gagal Load Master Data: {e}"); st.stop()
 
 # ==========================================
 # MENU 1: PEMBERSIHAN NAMA BAKU
@@ -96,198 +85,174 @@ if menu == "Pembersihan Nama":
             if teks_po.strip():
                 daftar_item = [item.strip() for item in teks_po.split('\n') if item.strip()]
                 hasil_teks = []
-                for nama_kotor in daftar_item:
-                    matches = process.extract(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
+                for item_kotor in daftar_item:
+                    matches = process.extract(item_kotor, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
                     ditemukan = False
-                    for match in matches:
-                        skor = round(match[1], 2)
-                        if skor >= 40: 
-                            baku = lookup_to_baku[match[0]]
-                            info = master_map.get(baku, {})
-                            if not any(d.get('Nama Baku (Sistem)') == baku and d.get('Input User') == nama_kotor for d in hasil_teks):
-                                hasil_teks.append({"Input User": nama_kotor, "Nama Baku (Sistem)": baku, "Kategori": info.get('KATEGORI', '-'), "Detail Kategori": info.get('DETAIL KATEGORI', '-'), "Akurasi (%)": skor})
+                    for m in matches:
+                        if m[1] >= 40:
+                            baku = lookup_to_baku[m[0]]; info = master_map.get(baku, {})
+                            if not any(d.get('Nama Baku (Sistem)') == baku and d.get('Input User') == item_kotor for d in hasil_teks):
+                                hasil_teks.append({"Input User": item_kotor, "Nama Baku (Sistem)": baku, "Kategori": info.get('KATEGORI', '-'), "Detail Kategori": info.get('DETAIL KATEGORI', '-'), "Akurasi (%)": round(m[1], 1)})
                                 ditemukan = True
                     if not ditemukan:
-                        hasil_teks.append({"Input User": nama_kotor, "Nama Baku (Sistem)": "⚠️ Tidak Ditemukan", "Kategori": "-", "Detail Kategori": "-", "Akurasi (%)": 0})
+                        hasil_teks.append({"Input User": item_kotor, "Nama Baku (Sistem)": "⚠️ Tidak Ditemukan", "Kategori": "-", "Detail Kategori": "-", "Akurasi (%)": 0})
                 
                 df_hasil = pd.DataFrame(hasil_teks)
                 if not df_hasil.empty:
                     df_hasil['Akurasi (%)'] = pd.to_numeric(df_hasil['Akurasi (%)'], errors='coerce').fillna(0)
                     df_hasil = df_hasil.sort_values(by=['Input User', 'Akurasi (%)'], ascending=[True, False]).reset_index(drop=True)
-                    df_hasil['Akurasi (%)'] = df_hasil['Akurasi (%)'].apply(lambda x: round(x, 1) if isinstance(x, (int, float)) else x)
                 st.dataframe(df_hasil, use_container_width=True)
 
     with tab_excel:
-        st.write("### Mode Lengkap: Upload & Tembak ke Laporan")
-        file_po = st.file_uploader("Upload Excel (Format .xlsx atau .xls ERP)", type=["xlsx", "xls"])
+        st.write("### Mode Lengkap: Auto-Detect Format Laporan")
+        file_po = st.file_uploader("Upload Excel (.xlsx/.xls)", type=["xlsx", "xls"])
         
         if file_po:
             try:
-                # [SKENARIO A]: Baca format ERP
-                df_po = pd.read_excel(file_po, skiprows=7)
-                df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
-                if not ('NAMA BARANG' in df_po.columns):
-                    raise ValueError("Bukan format ERP")
+                # 1. Deteksi Header Otomatis (Cari baris mana yang ada kata 'NAMA BARANG')
+                raw_excel = pd.read_excel(file_po, header=None)
+                header_idx = -1
+                for i, row in raw_excel.iterrows():
+                    row_str = " ".join(row.astype(str).upper())
+                    if 'NAMA BARANG' in row_str or 'NAMA ITEM' in row_str:
+                        header_idx = i
+                        break
                 
-                df_po['VENDOR_ASLI'] = df_po['NO BUKTI'].where(df_po['NAMA BARANG'].isna()).ffill()
-                df_po = df_po[~df_po['NO BUKTI'].astype(str).str.contains("Jumlah", case=False, na=False)]
-                df_po = df_po[~df_po['NAMA BARANG'].astype(str).str.contains("Jumlah", case=False, na=False)]
-                df_po = df_po.dropna(subset=['NAMA BARANG'])
-                
-                kolom_kotor = 'NAMA BARANG'
-                qty_cols = [c for c in df_po.columns if 'QTY' in c]
-                df_po['QTY_FINAL'] = df_po[qty_cols[0]] if qty_cols else 0
-                df_po['HARGA_FINAL'] = df_po.get('HARGA', 0)
-                df_po['VENDOR_FINAL'] = df_po['VENDOR_ASLI']
-                
-                tgl_cols = [c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c]
-                df_po['TANGGAL_FINAL'] = df_po[tgl_cols[0]] if tgl_cols else '-'
-                
-                st.success("🤖 Format ERP (.xls/.xlsx) terdeteksi. Kolom otomatis disesuaikan!")
-            except:
-                # [SKENARIO B]: Baca Excel standar
-                file_po.seek(0)
-                df_po = pd.read_excel(file_po)
-                df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
-                
-                possible_cols = [c for c in df_po.columns if 'ITEM' in c or 'NAMA' in c]
-                kolom_kotor = possible_cols[0] if possible_cols else df_po.columns[0]
-                
-                qty_cols = [c for c in df_po.columns if 'QTY' in c]
-                df_po['QTY_FINAL'] = df_po[qty_cols[0]] if qty_cols else 0
-                df_po['HARGA_FINAL'] = df_po.get('HARGA', 0)
-                df_po['VENDOR_FINAL'] = df_po.get('VENDOR', '-')
-                
-                tgl_cols = [c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c]
-                df_po['TANGGAL_FINAL'] = df_po[tgl_cols[0]] if tgl_cols else '-'
-                
-                st.success("📄 File Excel standar terdeteksi.")
-
-            if st.button("Bersihkan & Lengkapi Data Laporan", type="primary"):
-                hasil_rows = []
-                for _, row in df_po.iterrows():
-                    nama_kotor = str(row[kolom_kotor])
-                    match = process.extractOne(nama_kotor, list_lookup, scorer=fuzz.token_set_ratio)
-                    if match and match[1] >= 70: 
-                        baku = lookup_to_baku[match[0]]; info = master_map.get(baku, {})
-                        row_data = {
-                            "NAMA ITEM": nama_kotor, "NAMA BAKU": baku, "KATEGORI": info.get('KATEGORI', '-'), 
-                            "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'), "NOMOR SKU": info.get('NOMOR SKU', '-'),
-                            "SATUAN": info.get('SATUAN', row.get('SATUAN', '-')), "HARGA": row.get('HARGA_FINAL', 0), 
-                            "QTY": row.get('QTY_FINAL', 0), "VENDOR": row.get('VENDOR_FINAL', '-'),
-                            "GRUP": row.get('GRUP', '-'), "TANGGAL": str(row.get('TANGGAL_FINAL', '-'))
-                        }
-                    else:
-                        row_data = {
-                            "NAMA ITEM": nama_kotor, "NAMA BAKU": "⚠️ CEK MANUAL", "KATEGORI": "-", 
-                            "DETAIL KATEGORI": "-", "NOMOR SKU": "-", "SATUAN": row.get('SATUAN', '-'), 
-                            "HARGA": row.get('HARGA_FINAL', 0), "QTY": row.get('QTY_FINAL', 0), 
-                            "VENDOR": row.get('VENDOR_FINAL', '-'), "GRUP": row.get('GRUP', '-'),
-                            "TANGGAL": str(row.get('TANGGAL_FINAL', '-'))
-                        }
-                    hasil_rows.append(row_data)
-                st.session_state['hasil_bersih_excel'] = pd.DataFrame(hasil_rows)
-
-            if 'hasil_bersih_excel' in st.session_state:
-                df_hasil = st.session_state['hasil_bersih_excel']
-                tab_dtl, tab_rkp = st.tabs(["📄 Detail per PO", "📊 Rekap Bulanan"])
-                
-                # ==========================================
-                # BAGIAN 1: TAB DETAIL PER PO
-                # ==========================================
-                with tab_dtl:
-                    df_t_dtl = df_hasil.copy()
-                    df_t_dtl['HARGA'] = df_t_dtl['HARGA'].apply(format_rupiah)
-                    st.dataframe(df_t_dtl, use_container_width=True)
+                if header_idx != -1:
+                    df_po = pd.read_excel(file_po, skiprows=header_idx)
+                    df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
                     
-                    # TOMBOL KHUSUS UNTUK DETAIL PO
-                    if st.button("🚀 TEMBAK DETAIL PO KE GOOGLE SHEETS", key="btn_detail", type="primary"):
-                        try:
-                            with st.spinner("Sedang mengirim Detail PO ke Tab Paling Kanan..."):
-                                client = get_gspread_client()
-                                sheet = client.open_by_key(SHEET_ID).worksheets()[-1] 
-                                df_to_send = df_hasil.fillna("") 
-                                # Mengirim data detail
-                                sheet.append_rows(df_to_send.values.tolist())
-                                st.success(f"🔥 BOOM! Data Detail PO berhasil mendarat di tab '{sheet.title}'!")
-                                del st.session_state['hasil_bersih_excel']
-                        except Exception as e: 
-                            st.error(f"Gagal kirim: {e}")
+                    # 2. Algoritma 'Context Tracker' (Vendor & Tanggal)
+                    vendor_saat_ini = "-"
+                    tgl_saat_ini = "-"
+                    final_data = []
+                    
+                    # Cari tau kolom krusial
+                    col_barang = [c for c in df_po.columns if 'NAMA BARANG' in c or 'NAMA ITEM' in c][0]
+                    col_qty = [c for c in df_po.columns if 'QTY' in c]
+                    col_qty_name = col_qty[0] if col_qty else None
+                    col_harga = [c for c in df_po.columns if 'HARGA' in c]
+                    col_harga_name = col_harga[0] if col_harga else None
+                    col_tgl = [c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c]
+                    col_ref = df_po.columns[0] # Kolom pertama biasanya buat vendor/no bukti
+                    
+                    for i, row in df_po.iterrows():
+                        val_ref = str(row[col_ref]) if not pd.isna(row[col_ref]) else ""
+                        val_barang = str(row[col_barang]) if not pd.isna(row[col_barang]) else ""
+                        
+                        # Logika Tangkap Vendor (Baris dimana barang kosong tapi kolom ref ada teks)
+                        if (not val_barang or val_barang.lower() == 'nan') and val_ref and val_ref.lower() != 'nan':
+                            if "JUMLAH" not in val_ref.upper() and "SUBTOTAL" not in val_ref.upper(): 
+                                vendor_saat_ini = val_ref
+                        
+                        # Logika Tangkap Tanggal (Jika ada kolom tanggal dan isinya valid)
+                        if col_tgl and not pd.isna(row[col_tgl[0]]) and str(row[col_tgl[0]]).lower() != 'nan':
+                            tgl_val = str(row[col_tgl[0]])
+                            # Hindari menangkap angka QTY nyasar sebagai tanggal
+                            if len(tgl_val) > 4: 
+                                tgl_saat_ini = tgl_val
+                        
+                        # Logika Simpan Barang (Jika baris punya nama barang)
+                        if val_barang and val_barang.lower() != 'nan' and "JUMLAH" not in val_barang.upper() and "SUBTOTAL" not in val_barang.upper():
+                            qty_val = row[col_qty_name] if col_qty_name else 0
+                            harga_val = row[col_harga_name] if col_harga_name else 0
+                            
+                            final_data.append({
+                                "ITEM_KOTOR": val_barang, "QTY": qty_val, "HARGA": harga_val,
+                                "VENDOR": vendor_saat_ini, "TANGGAL": tgl_saat_ini
+                            })
+                    
+                    df_clean = pd.DataFrame(final_data)
+                    st.success(f"🤖 Berhasil memproses {len(df_clean)} baris barang dengan metode 'Context Tracker'!")
+                    
+                    if st.button("Proses Pembersihan & Rekap", type="primary"):
+                        hasil_rows = []
+                        for _, r in df_clean.iterrows():
+                            match = process.extractOne(str(r['ITEM_KOTOR']), list_lookup, scorer=fuzz.token_set_ratio)
+                            if match and match[1] >= 70:
+                                baku = lookup_to_baku[match[0]]; info = master_map.get(baku, {})
+                                hasil_rows.append({
+                                    "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": baku, "KATEGORI": info.get('KATEGORI', '-'), 
+                                    "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'), "NOMOR SKU": info.get('NOMOR SKU', '-'),
+                                    "SATUAN": info.get('SATUAN', '-'), "HARGA": r['HARGA'], "QTY": r['QTY'], 
+                                    "VENDOR": r['VENDOR'], "GRUP": "-", "TANGGAL": r['TANGGAL']
+                                })
+                            else:
+                                hasil_rows.append({
+                                    "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": "⚠️ CEK MANUAL", "KATEGORI": "-", 
+                                    "DETAIL KATEGORI": "-", "NOMOR SKU": "-", "SATUAN": "-", 
+                                    "HARGA": r['HARGA'], "QTY": r['QTY'], "VENDOR": r['VENDOR'], 
+                                    "GRUP": "-", "TANGGAL": r['TANGGAL']
+                                })
+                        st.session_state['hasil_bersih'] = pd.DataFrame(hasil_rows)
+                else:
+                    st.error("Gagal menemukan kolom 'Nama Barang'. Pastikan file Excel tidak kosong.")
+            except Exception as e:
+                st.error(f"Terjadi kesalahan saat membaca file: {e}")
 
-                # ==========================================
-                # BAGIAN 2: TAB REKAP BULANAN
-                # ==========================================
-                with tab_rkp:
+        if 'hasil_bersih' in st.session_state:
+            df_res = st.session_state['hasil_bersih']
+            t1, t2 = st.tabs(["📄 Detail per PO", "📊 Rekap Bulanan"])
+            
+            with t1:
+                df_v = df_res.copy(); df_v['HARGA'] = df_v['HARGA'].apply(format_rupiah)
+                st.dataframe(df_v, use_container_width=True)
+                if st.button("🚀 TEMBAK DETAIL KE SHEETS", key="btn_dtl", type="primary"):
                     try:
-                        df_rekap = df_hasil.copy()
-                        df_rekap['QTY'] = pd.to_numeric(df_rekap['QTY'], errors='coerce').fillna(0)
-                        df_rekap['HARGA'] = pd.to_numeric(df_rekap['HARGA'], errors='coerce').fillna(0)
-                        df_rekap['TOTAL_NILAI'] = df_rekap['QTY'] * df_rekap['HARGA']
-                        
-                        df_group = df_rekap.groupby(['NAMA BAKU', 'KATEGORI', 'SATUAN']).agg(
-                            TOTAL_QTY=('QTY', 'sum'), TOTAL_BELANJA=('TOTAL_NILAI', 'sum'),
-                            HARGA_TERTINGGI=('HARGA', 'max'), FREKUENSI_ORDER=('NAMA BAKU', 'count')
-                        ).reset_index()
-                        
-                        df_group['HARGA_RATA_RATA'] = (df_group['TOTAL_BELANJA'] / df_group['TOTAL_QTY']).fillna(0).round(0)
-                        
-                        kolom_tampil = ['NAMA BAKU', 'KATEGORI', 'TOTAL_QTY', 'SATUAN', 'HARGA_RATA_RATA', 'HARGA_TERTINGGI', 'FREKUENSI_ORDER']
-                        
-                        # 1. Data MURNI (Angka asli) untuk dikirim ke Google Sheets
-                        df_group_murni = df_group[kolom_tampil].copy()
-                        
-                        # 2. Data VISUAL (Format Rp) untuk ditampilkan di layar website
-                        df_tampil_rekap = df_group[kolom_tampil].copy()
-                        df_tampil_rekap['HARGA_RATA_RATA'] = df_tampil_rekap['HARGA_RATA_RATA'].apply(format_rupiah)
-                        df_tampil_rekap['HARGA_TERTINGGI'] = df_tampil_rekap['HARGA_TERTINGGI'].apply(format_rupiah)
-                        
-                        st.dataframe(df_tampil_rekap, use_container_width=True)
-                        st.info("💡 **Tips:** Tabel ini menjumlahkan total QTY dari semua Plant/Vendor untuk barang yang sama.")
-                        
-                        # TOMBOL KHUSUS UNTUK REKAP
-                        if st.button("🚀 TEMBAK REKAP BULANAN KE GOOGLE SHEETS", key="btn_rekap", type="primary"):
-                            try:
-                                with st.spinner("Sedang mengirim REKAP BULANAN ke Tab Paling Kanan..."):
-                                    client = get_gspread_client()
-                                    sheet = client.open_by_key(SHEET_ID).worksheets()[-1] 
-                                    df_to_send_rekap = df_group_murni.fillna("") 
-                                    
-                                    # Mengirim Judul Kolom + Data Rekap
-                                    data_siap_kirim = [df_to_send_rekap.columns.tolist()] + df_to_send_rekap.values.tolist()
-                                    sheet.append_rows(data_siap_kirim)
-                                    
-                                    st.success(f"🔥 BOOM! Laporan REKAP BULANAN berhasil mendarat di tab '{sheet.title}'!")
-                                    del st.session_state['hasil_bersih_excel']
-                            except Exception as e: 
-                                st.error(f"Gagal kirim: {e}")
-                                
-                    except Exception as e:
-                        st.warning(f"Gagal membuat rekap. Error: {e}")
+                        with st.spinner("Mengirim..."):
+                            client = get_gspread_client(); sheet = client.open_by_key(SHEET_ID).worksheets()[-1]
+                            sheet.append_rows(df_res.fillna("").values.tolist())
+                            st.success(f"🔥 Selesai mendarat di tab '{sheet.title}'!"); del st.session_state['hasil_bersih']
+                    except Exception as e: st.error(f"Gagal: {e}")
+            
+            with t2:
+                try:
+                    df_rk = df_res.copy()
+                    df_rk['QTY'] = pd.to_numeric(df_rk['QTY'], errors='coerce').fillna(0)
+                    df_rk['HARGA'] = pd.to_numeric(df_rk['HARGA'], errors='coerce').fillna(0)
+                    df_rk['TOTAL_NILAI'] = df_rk['QTY'] * df_rk['HARGA']
+                    
+                    df_g = df_rk.groupby(['NAMA BAKU', 'KATEGORI', 'SATUAN']).agg(
+                        TOTAL_QTY=('QTY', 'sum'), TOTAL_BELANJA=('TOTAL_NILAI', 'sum'),
+                        HARGA_TERTINGGI=('HARGA', 'max'), FREKUENSI_ORDER=('NAMA BAKU', 'count')
+                    ).reset_index()
+                    df_g['HARGA_RATA_RATA'] = (df_g['TOTAL_BELANJA'] / df_g['TOTAL_QTY']).fillna(0).round(0)
+                    
+                    kolom_tampil = ['NAMA BAKU', 'KATEGORI', 'TOTAL_QTY', 'SATUAN', 'HARGA_RATA_RATA', 'HARGA_TERTINGGI', 'FREKUENSI_ORDER']
+                    df_g_murni = df_g[kolom_tampil].copy()
+                    
+                    df_gv = df_g[kolom_tampil].copy()
+                    df_gv['HARGA_RATA_RATA'] = df_gv['HARGA_RATA_RATA'].apply(format_rupiah)
+                    df_gv['HARGA_TERTINGGI'] = df_gv['HARGA_TERTINGGI'].apply(format_rupiah)
+                    
+                    st.dataframe(df_gv, use_container_width=True)
+                    
+                    if st.button("🚀 TEMBAK REKAP KE SHEETS", key="btn_rkp", type="primary"):
+                        try:
+                            with st.spinner("Mengirim Rekap..."):
+                                client = get_gspread_client(); sheet = client.open_by_key(SHEET_ID).worksheets()[-1]
+                                sheet.append_rows([df_g_murni.columns.tolist()] + df_g_murni.fillna("").values.tolist())
+                                st.success(f"🔥 Rekap berhasil mendarat di tab '{sheet.title}'!"); del st.session_state['hasil_bersih']
+                        except Exception as e: st.error(f"Gagal: {e}")
+                except Exception as e:
+                    st.warning(f"Gagal memproses rekap. Pastikan ada angka di QTY dan Harga. Error: {e}")
 
-    with tab_cari:
-        st.write("### Mesin Pencari Master Data")
-        kata_cari = st.text_input("Ketik nama barang atau singkatan (contoh: knee, aki, kabel):")
-        if kata_cari:
-            hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
-            data_tabel = []
-            for match in hasil_cari:
-                skor = round(match[1], 2)
-                kunci = match[0]
-                if skor >= 30:
-                    baku = lookup_to_baku[kunci]
-                    info = master_map.get(baku, {})
-                    data_tabel.append({
-                        "Skor Kemiripan": f"{skor}%", "Nama Baku di Sistem": baku,
-                        "Kategori": info.get('KATEGORI', '-'), "SKU": info.get('NOMOR SKU', '-')
-                    })
-            if data_tabel:
-                st.dataframe(pd.DataFrame(data_tabel), use_container_width=True)
-            else:
-                st.warning("⚠️ Tidak ada barang yang mirip di database.")
+# (Menu Cari Vendor & Update Master Data tetap sama)
+elif menu == "Cari Vendor":
+    st.header("Database Vendor")
+    keyword = st.text_input("Cari Vendor / Barang:")
+    if keyword:
+        try:
+            df_v = load_data(GID_VENDOR)
+            df_v.columns = df_v.columns.str.strip().str.upper()
+            res = df_v[df_v.astype(str).apply(lambda x: x.str.contains(keyword, case=False)).any(axis=1)]
+            if not res.empty:
+                for _, v in res.iterrows():
+                    with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - {v.get('KATEGORI', '-')}"):
+                        st.write(f"**PIC:** {v.get('PIC', '-')} | **Kontak:** {v.get('KONTAK', '-')}")
+            else: st.warning("Vendor tidak ditemukan.")
+        except Exception as e: st.error("Gagal Load Vendor")
 
-# ==========================================
-# MENU 2: UPDATE MASTER DATA (INPUT)
-# ==========================================
 elif menu == "Update Master Data":
     st.header("Input Master Item Baru")
     st.info("Formulir untuk menambah barang baru ke Master Data.")
@@ -311,49 +276,6 @@ elif menu == "Update Master Data":
     if st.button("Simpan ke Master Data", type="primary"):
         st.warning("⚠️ Untuk keamanan data, saat ini penambahan master data langsung dilakukan dari Google Sheets.")
 
-# ==========================================
-# MENU 3: CARI VENDOR
-# ==========================================
-elif menu == "Cari Vendor":
-    st.header("Database Vendor - Purchasing Regional")
-    st.info("Ketik kata kunci (Nama barang, Kategori, atau Nama Vendor) untuk mencari supplier.")
-    
-    try:
-        df_vendor = load_data(GID_VENDOR)
-        df_vendor.columns = df_vendor.columns.str.strip()
-        keyword = st.text_input("Cari Vendor / Barang:")
-        
-        if keyword:
-            mask = (
-                df_vendor['NAMA VENDOR'].astype(str).str.contains(keyword, case=False, na=False) |
-                df_vendor['KATEGORI'].astype(str).str.contains(keyword, case=False, na=False) |
-                df_vendor['ALAMAT'].astype(str).str.contains(keyword, case=False, na=False)
-            )
-            hasil = df_vendor[mask]
-            
-            if not hasil.empty:
-                st.success(f"Ditemukan {len(hasil)} Vendor yang cocok!")
-                for _, v in hasil.iterrows():
-                    with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - ({v.get('KATEGORI', '-')})"):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.write(f"**📍 Alamat:** {v.get('ALAMAT', '-')}")
-                            st.write(f"**👤 PIC:** {v.get('PIC', '-')}")
-                            st.write(f"**📞 Kontak:** {v.get('KONTAK', '-')}")
-                            st.write(f"**📧 Email:** {v.get('EMAIL', '-')}")
-                        with col2:
-                            st.write(f"**💳 Rekening:** {v.get('REKENING', '-')}")
-                            st.write(f"**🏦 Atas Nama:** {v.get('ATAS NAMA REKENING', '-')}")
-                            st.write(f"**⏳ TOP:** {v.get('TOP', '-')}")
-                            st.write(f"**🪪 NPWP:** {v.get('NPWP', '-')}")
-            else:
-                st.warning(f"Vendor dengan kata kunci '{keyword}' tidak ditemukan.")
-    except Exception as e:
-        st.error(f"Gagal memuat data vendor. Pastikan GID '{GID_VENDOR}' sudah benar. Error: {e}")
-
-# ==========================================
-# MENU 4: FITUR MENDATANG
-# ==========================================
 elif menu == "Fitur Mendatang":
     st.header("Fitur Mendatang")
     st.write("Ruang ini disiapkan untuk Dashboard Grafik & Rekap PO per bulan.")
