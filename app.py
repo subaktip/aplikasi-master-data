@@ -123,7 +123,7 @@ if menu == "Pembersihan Nama":
         
         if file_po:
             try:
-                # [SKENARIO A]: Baca format ERP (loncat 7 baris)
+                # [SKENARIO A]: Baca format ERP
                 df_po = pd.read_excel(file_po, skiprows=7)
                 df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
                 if not ('NAMA BARANG' in df_po.columns):
@@ -135,21 +135,17 @@ if menu == "Pembersihan Nama":
                 df_po = df_po.dropna(subset=['NAMA BARANG'])
                 
                 kolom_kotor = 'NAMA BARANG'
-                
-                # [UPDATE PINTAR]: Cari kolom QTY apapun namanya (QTY1, QTY2, dll)
                 qty_cols = [c for c in df_po.columns if 'QTY' in c]
                 df_po['QTY_FINAL'] = df_po[qty_cols[0]] if qty_cols else 0
-                
                 df_po['HARGA_FINAL'] = df_po.get('HARGA', 0)
                 df_po['VENDOR_FINAL'] = df_po['VENDOR_ASLI']
                 
-                # [UPDATE PINTAR]: Cari kolom Tanggal/Tgl apapun namanya
                 tgl_cols = [c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c]
                 df_po['TANGGAL_FINAL'] = df_po[tgl_cols[0]] if tgl_cols else '-'
                 
-                st.success("🤖 Format ERP (.xls/.xlsx) terdeteksi. Kolom Qty & Tanggal otomatis disesuaikan!")
+                st.success("🤖 Format ERP (.xls/.xlsx) terdeteksi. Kolom otomatis disesuaikan!")
             except:
-                # [SKENARIO B]: Jika gagal, baca sebagai Excel standar
+                # [SKENARIO B]: Baca Excel standar
                 file_po.seek(0)
                 df_po = pd.read_excel(file_po)
                 df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
@@ -159,7 +155,6 @@ if menu == "Pembersihan Nama":
                 
                 qty_cols = [c for c in df_po.columns if 'QTY' in c]
                 df_po['QTY_FINAL'] = df_po[qty_cols[0]] if qty_cols else 0
-                
                 df_po['HARGA_FINAL'] = df_po.get('HARGA', 0)
                 df_po['VENDOR_FINAL'] = df_po.get('VENDOR', '-')
                 
@@ -196,10 +191,32 @@ if menu == "Pembersihan Nama":
             if 'hasil_bersih_excel' in st.session_state:
                 df_hasil = st.session_state['hasil_bersih_excel']
                 tab_dtl, tab_rkp = st.tabs(["📄 Detail per PO", "📊 Rekap Bulanan"])
+                
+                # ==========================================
+                # BAGIAN 1: TAB DETAIL PER PO
+                # ==========================================
                 with tab_dtl:
                     df_t_dtl = df_hasil.copy()
                     df_t_dtl['HARGA'] = df_t_dtl['HARGA'].apply(format_rupiah)
                     st.dataframe(df_t_dtl, use_container_width=True)
+                    
+                    # TOMBOL KHUSUS UNTUK DETAIL PO
+                    if st.button("🚀 TEMBAK DETAIL PO KE GOOGLE SHEETS", key="btn_detail", type="primary"):
+                        try:
+                            with st.spinner("Sedang mengirim Detail PO ke Tab Paling Kanan..."):
+                                client = get_gspread_client()
+                                sheet = client.open_by_key(SHEET_ID).worksheets()[-1] 
+                                df_to_send = df_hasil.fillna("") 
+                                # Mengirim data detail
+                                sheet.append_rows(df_to_send.values.tolist())
+                                st.success(f"🔥 BOOM! Data Detail PO berhasil mendarat di tab '{sheet.title}'!")
+                                del st.session_state['hasil_bersih_excel']
+                        except Exception as e: 
+                            st.error(f"Gagal kirim: {e}")
+
+                # ==========================================
+                # BAGIAN 2: TAB REKAP BULANAN
+                # ==========================================
                 with tab_rkp:
                     try:
                         df_rekap = df_hasil.copy()
@@ -215,29 +232,37 @@ if menu == "Pembersihan Nama":
                         df_group['HARGA_RATA_RATA'] = (df_group['TOTAL_BELANJA'] / df_group['TOTAL_QTY']).fillna(0).round(0)
                         
                         kolom_tampil = ['NAMA BAKU', 'KATEGORI', 'TOTAL_QTY', 'SATUAN', 'HARGA_RATA_RATA', 'HARGA_TERTINGGI', 'FREKUENSI_ORDER']
+                        
+                        # 1. Data MURNI (Angka asli) untuk dikirim ke Google Sheets
+                        df_group_murni = df_group[kolom_tampil].copy()
+                        
+                        # 2. Data VISUAL (Format Rp) untuk ditampilkan di layar website
                         df_tampil_rekap = df_group[kolom_tampil].copy()
                         df_tampil_rekap['HARGA_RATA_RATA'] = df_tampil_rekap['HARGA_RATA_RATA'].apply(format_rupiah)
                         df_tampil_rekap['HARGA_TERTINGGI'] = df_tampil_rekap['HARGA_TERTINGGI'].apply(format_rupiah)
                         
                         st.dataframe(df_tampil_rekap, use_container_width=True)
                         st.info("💡 **Tips:** Tabel ini menjumlahkan total QTY dari semua Plant/Vendor untuk barang yang sama.")
+                        
+                        # TOMBOL KHUSUS UNTUK REKAP
+                        if st.button("🚀 TEMBAK REKAP BULANAN KE GOOGLE SHEETS", key="btn_rekap", type="primary"):
+                            try:
+                                with st.spinner("Sedang mengirim REKAP BULANAN ke Tab Paling Kanan..."):
+                                    client = get_gspread_client()
+                                    sheet = client.open_by_key(SHEET_ID).worksheets()[-1] 
+                                    df_to_send_rekap = df_group_murni.fillna("") 
+                                    
+                                    # Mengirim Judul Kolom + Data Rekap
+                                    data_siap_kirim = [df_to_send_rekap.columns.tolist()] + df_to_send_rekap.values.tolist()
+                                    sheet.append_rows(data_siap_kirim)
+                                    
+                                    st.success(f"🔥 BOOM! Laporan REKAP BULANAN berhasil mendarat di tab '{sheet.title}'!")
+                                    del st.session_state['hasil_bersih_excel']
+                            except Exception as e: 
+                                st.error(f"Gagal kirim: {e}")
+                                
                     except Exception as e:
-                        st.warning("Gagal membuat rekap. Pastikan file Excel memiliki kolom yang berisi angka untuk QTY dan HARGA.")
-
-                if st.button("🚀 TEMBAK KE GOOGLE SHEETS", type="primary"):
-                    try:
-                        with st.spinner("Sedang mengirim ke Tab Paling Kanan..."):
-                            client = get_gspread_client()
-                            spreadsheet = client.open_by_key(SHEET_ID)
-                            sheet = spreadsheet.worksheets()[-1] 
-                            
-                            df_to_send = df_hasil.fillna("") 
-                            sheet.append_rows(df_to_send.values.tolist())
-                            
-                            st.success(f"🔥 BOOM! Semua data berhasil mendarat dengan aman di tab '{sheet.title}'!")
-                            del st.session_state['hasil_bersih_excel']
-                    except Exception as e: 
-                        st.error(f"Gagal kirim: {e}")
+                        st.warning(f"Gagal membuat rekap. Error: {e}")
 
     with tab_cari:
         st.write("### Mesin Pencari Master Data")
