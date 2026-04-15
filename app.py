@@ -18,7 +18,6 @@ with st.sidebar:
     st.title("Sistem Master Data")
     st.write("**Purchasing Regional**")
     
-    # [UPDATE]: TOMBOL SAKTI UNTUK REFRESH DATA INSTAN
     if st.button("🔄 Sinkronisasi Data (Refresh)", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
@@ -61,14 +60,13 @@ def format_rupiah(angka):
     try: return f"Rp {int(angka):,}".replace(',', '.')
     except: return "Rp 0"
 
-# --- PERSIAPAN KAMUS PINTAR (DENGAN AUTO-SETRIKA) ---
+# --- PERSIAPAN KAMUS PINTAR ---
 try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
     df_master = df_master.dropna(subset=['NAMA BAKU'])
     df_master = df_master[df_master['NAMA BAKU'].astype(str).str.strip().str.lower() != "(blank)"]
     
-    # [UPDATE]: FITUR AUTO-SETRIKA (Menghapus spasi gaib & menyamakan huruf besar)
     if 'KATEGORI' in df_master.columns: 
         df_master['KATEGORI'] = df_master['KATEGORI'].ffill().astype(str).str.strip().str.upper().replace('NAN', '-')
     if 'DETAIL KATEGORI' in df_master.columns: 
@@ -272,7 +270,6 @@ elif menu == "Update Master Data":
     st.header("Input Master Item Baru")
     st.info("Formulir untuk menambah barang baru ke Master Data.")
     
-    # [UPDATE]: Filter bersih kategori agar dropdown rapi
     kategori_unik = sorted([k for k in df_master['KATEGORI'].unique() if k and k != '-'])
     new_kat = st.selectbox("KATEGORI:", kategori_unik)
     
@@ -293,7 +290,7 @@ elif menu == "Update Master Data":
         st.warning("⚠️ Untuk keamanan data, saat ini penambahan master data langsung dilakukan dari Google Sheets.")
 
 # ==========================================
-# MENU 3: CARI VENDOR
+# MENU 3: CARI VENDOR (SUDAH KEMBALI LENGKAP!)
 # ==========================================
 elif menu == "Cari Vendor":
     st.header("Database Vendor")
@@ -305,10 +302,24 @@ elif menu == "Cari Vendor":
             res = df_v[df_v.astype(str).apply(lambda x: x.str.contains(keyword, case=False)).any(axis=1)]
             if not res.empty:
                 for _, v in res.iterrows():
-                    with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - {v.get('KATEGORI', '-')}"):
-                        st.write(f"**PIC:** {v.get('PIC', '-')} | **Kontak:** {v.get('KONTAK', '-')}")
-            else: st.warning("Vendor tidak ditemukan.")
-        except Exception as e: st.error("Gagal Load Vendor")
+                    # Format expander judul
+                    with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - {v.get('KATEGORI', '-')} (PIC: {v.get('PIC', '-')})"):
+                        # Format 2 Kolom Lengkap
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**📍 Alamat:** {v.get('ALAMAT', '-')}")
+                            st.write(f"**👤 PIC:** {v.get('PIC', '-')}")
+                            st.write(f"**📞 Kontak:** {v.get('KONTAK', '-')}")
+                            st.write(f"**📧 Email:** {v.get('EMAIL', '-')}")
+                        with col2:
+                            st.write(f"**💳 Rekening:** {v.get('REKENING', '-')}")
+                            st.write(f"**🏦 Atas Nama:** {v.get('ATAS NAMA REKENING', '-')}")
+                            st.write(f"**⏳ TOP:** {v.get('TOP', '-')}")
+                            st.write(f"**🪪 NPWP:** {v.get('NPWP', '-')}")
+            else: 
+                st.warning("Vendor tidak ditemukan.")
+        except Exception as e: 
+            st.error("Gagal Load Vendor. Pastikan tab vendor ada dan GID benar.")
 
 # ==========================================
 # MENU 4: DASHBOARD LAPORAN
@@ -321,11 +332,9 @@ elif menu == "Dashboard Laporan":
         col1, col2, col3 = st.columns(3)
         col1.info(f"📦 **Total Data Barang:** {len(df_master):,} Item")
         
-        # Hitung kategori yang bukan "-"
         cat_valid = df_master[df_master['KATEGORI'] != '-']['KATEGORI'].nunique()
         col2.success(f"🗂️ **Total Kategori:** {cat_valid} Kategori")
         
-        # Hitung vendor yang valid
         if 'VENDOR' in df_master.columns:
             ven_valid = df_master[~df_master['VENDOR'].isin(['-', ''])]["VENDOR"].nunique()
         else:
