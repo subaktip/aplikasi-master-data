@@ -17,6 +17,12 @@ with st.sidebar:
     st.image("logo.png", width=150) 
     st.title("Sistem Master Data")
     st.write("**Purchasing Regional**")
+    
+    # [UPDATE]: TOMBOL SAKTI UNTUK REFRESH DATA INSTAN
+    if st.button("🔄 Sinkronisasi Data (Refresh)", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+        
     st.write("---")
     
     menu = option_menu(
@@ -45,7 +51,7 @@ def get_gspread_client():
     creds = Credentials.from_service_account_info(key_dict, scopes=scopes)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=60)
 def load_data(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}&t={time.time()}"
     df = pd.read_csv(url)
@@ -55,14 +61,20 @@ def format_rupiah(angka):
     try: return f"Rp {int(angka):,}".replace(',', '.')
     except: return "Rp 0"
 
-# --- PERSIAPAN KAMUS PINTAR ---
+# --- PERSIAPAN KAMUS PINTAR (DENGAN AUTO-SETRIKA) ---
 try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
     df_master = df_master.dropna(subset=['NAMA BAKU'])
     df_master = df_master[df_master['NAMA BAKU'].astype(str).str.strip().str.lower() != "(blank)"]
-    if 'KATEGORI' in df_master.columns: df_master['KATEGORI'] = df_master['KATEGORI'].ffill()
-    if 'DETAIL KATEGORI' in df_master.columns: df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill()
+    
+    # [UPDATE]: FITUR AUTO-SETRIKA (Menghapus spasi gaib & menyamakan huruf besar)
+    if 'KATEGORI' in df_master.columns: 
+        df_master['KATEGORI'] = df_master['KATEGORI'].ffill().astype(str).str.strip().str.upper().replace('NAN', '-')
+    if 'DETAIL KATEGORI' in df_master.columns: 
+        df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill().astype(str).str.strip().str.upper().replace('NAN', '-')
+    if 'VENDOR' in df_master.columns:
+        df_master['VENDOR'] = df_master['VENDOR'].astype(str).str.strip().str.upper().replace('NAN', '-')
     
     kata_kunci = df_master.get('KATA KUNCI', df_master.get('NAMA ITEM', ""))
     df_master['KATA KUNCI'] = kata_kunci.fillna("")
@@ -232,6 +244,54 @@ if menu == "Pembersihan Nama":
                 except Exception as e:
                     st.warning(f"Gagal memproses rekap. Pastikan ada angka di QTY dan Harga. Error: {e}")
 
+    with tab_cari:
+        st.write("### Mesin Pencari Master Data")
+        kata_cari = st.text_input("Ketik nama barang atau singkatan (contoh: knee, aki, kabel):")
+        if kata_cari:
+            hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
+            data_tabel = []
+            for match in hasil_cari:
+                skor = round(match[1], 2)
+                kunci = match[0]
+                if skor >= 30:
+                    baku = lookup_to_baku[kunci]
+                    info = master_map.get(baku, {})
+                    data_tabel.append({
+                        "Skor Kemiripan": f"{skor}%", "Nama Baku di Sistem": baku,
+                        "Kategori": info.get('KATEGORI', '-'), "SKU": info.get('NOMOR SKU', '-')
+                    })
+            if data_tabel:
+                st.dataframe(pd.DataFrame(data_tabel), use_container_width=True)
+            else:
+                st.warning("⚠️ Tidak ada barang yang mirip di database.")
+
+# ==========================================
+# MENU 2: UPDATE MASTER DATA
+# ==========================================
+elif menu == "Update Master Data":
+    st.header("Input Master Item Baru")
+    st.info("Formulir untuk menambah barang baru ke Master Data.")
+    
+    # [UPDATE]: Filter bersih kategori agar dropdown rapi
+    kategori_unik = sorted([k for k in df_master['KATEGORI'].unique() if k and k != '-'])
+    new_kat = st.selectbox("KATEGORI:", kategori_unik)
+    
+    detail_terkait = df_master[df_master['KATEGORI'] == new_kat]['DETAIL KATEGORI'].unique()
+    detail_unik = sorted([d for d in detail_terkait if d and d != '-'])
+    detail_unik.append("✨ + Tambah Detail Kategori Baru...")
+    
+    new_detail_pilihan = st.selectbox("DETAIL KATEGORI:", detail_unik)
+    if new_detail_pilihan == "✨ + Tambah Detail Kategori Baru...":
+        new_detail = st.text_input("Ketik Detail Kategori Baru:")
+    else:
+        new_detail = new_detail_pilihan
+        
+    new_nama = st.text_input("NAMA BAKU (Nama Resmi Barang):")
+    new_keyword = st.text_area("KATA KUNCI (Singkatan/Nama Lapangan):", help="Pisahkan dengan koma")
+    
+    if st.button("Simpan ke Master Data", type="primary"):
+        st.warning("⚠️ Untuk keamanan data, saat ini penambahan master data langsung dilakukan dari Google Sheets.")
+
 # ==========================================
 # MENU 3: CARI VENDOR
 # ==========================================
@@ -251,78 +311,53 @@ elif menu == "Cari Vendor":
         except Exception as e: st.error("Gagal Load Vendor")
 
 # ==========================================
-# MENU 4: UPDATE MASTER DATA
-# ==========================================
-elif menu == "Update Master Data":
-    st.header("Input Master Item Baru")
-    st.info("Formulir untuk menambah barang baru ke Master Data.")
-    
-    new_nama = st.text_input("NAMA BAKU (Nama Resmi Barang):")
-    kategori_unik = sorted([str(k) for k in df_master['KATEGORI'].dropna().unique() if str(k).strip() != ""])
-    new_kat = st.selectbox("KATEGORI:", kategori_unik)
-    
-    detail_terkait = df_master[df_master['KATEGORI'] == new_kat]['DETAIL KATEGORI'].dropna().unique()
-    detail_unik = sorted([str(d) for d in detail_terkait if str(d).strip() != ""])
-    detail_unik.append("✨ + Tambah Detail Kategori Baru...")
-    
-    new_detail_pilihan = st.selectbox("DETAIL KATEGORI:", detail_unik)
-    if new_detail_pilihan == "✨ + Tambah Detail Kategori Baru...":
-        new_detail = st.text_input("Ketik Detail Kategori Baru:")
-    else:
-        new_detail = new_detail_pilihan
-        
-    new_keyword = st.text_area("KATA KUNCI (Singkatan/Nama Lapangan):", help="Pisahkan dengan koma")
-    
-    if st.button("Simpan ke Master Data", type="primary"):
-        st.warning("⚠️ Untuk keamanan data, saat ini penambahan master data langsung dilakukan dari Google Sheets.")
-
-# ==========================================
-# MENU 5: DASHBOARD LAPORAN (BUG FIXED)
+# MENU 4: DASHBOARD LAPORAN
 # ==========================================
 elif menu == "Dashboard Laporan":
     st.header("📊 Dashboard Analisa Purchasing")
     st.write("Visualisasi interaktif dari puluhan ribu Master Data Anda.")
     
     if not df_master.empty:
-        # 1. Baris KPI (Kartu Angka)
         col1, col2, col3 = st.columns(3)
         col1.info(f"📦 **Total Data Barang:** {len(df_master):,} Item")
-        col2.success(f"🗂️ **Total Kategori:** {df_master['KATEGORI'].nunique()} Kategori")
-        v_count = df_master['VENDOR'].nunique() if 'VENDOR' in df_master.columns else 0
-        col3.warning(f"🏢 **Total Vendor:** {v_count} Vendor")
+        
+        # Hitung kategori yang bukan "-"
+        cat_valid = df_master[df_master['KATEGORI'] != '-']['KATEGORI'].nunique()
+        col2.success(f"🗂️ **Total Kategori:** {cat_valid} Kategori")
+        
+        # Hitung vendor yang valid
+        if 'VENDOR' in df_master.columns:
+            ven_valid = df_master[~df_master['VENDOR'].isin(['-', ''])]["VENDOR"].nunique()
+        else:
+            ven_valid = 0
+        col3.warning(f"🏢 **Total Vendor:** {ven_valid} Vendor")
         
         st.write("---")
         
-        # 2. Grafik Distribusi Kategori & Vendor
         col_chart1, col_chart2 = st.columns(2)
         with col_chart1:
             st.write("#### 📊 Top 10 Kategori Barang")
-            cat_count = df_master['KATEGORI'].value_counts().head(10)
+            cat_count = df_master[df_master['KATEGORI'] != '-']['KATEGORI'].value_counts().head(10)
             st.bar_chart(cat_count)
             
         with col_chart2:
             st.write("#### 🏢 Top 10 Vendor Tersering")
             if 'VENDOR' in df_master.columns:
-                df_ven = df_master[~df_master['VENDOR'].isin(['-', '', 'nan', '#REF!'])]
+                df_ven = df_master[~df_master['VENDOR'].isin(['-', ''])]
                 ven_count = df_ven['VENDOR'].value_counts().head(10)
                 st.bar_chart(ven_count)
         
         st.write("---")
-        
-        # 3. Grafik Harga per Kategori (ANTI-MABUK MODE)
         st.write("#### 💰 Rata-Rata Harga per Kategori (Top 10)")
         if 'HARGA' in df_master.columns:
-            # Langkah pembersihan cerdas
             harga_str = df_master['HARGA'].astype(str).str.upper().str.replace('RP', '', regex=False)
-            harga_str = harga_str.str.split(',').str[0] # Buang ,00
-            harga_str = harga_str.str.replace(r'[^0-9]', '', regex=True) # Sisakan angka murni
+            harga_str = harga_str.str.split(',').str[0]
+            harga_str = harga_str.str.replace(r'[^0-9]', '', regex=True)
             
             df_master['HARGA_NUM'] = pd.to_numeric(harga_str, errors='coerce').fillna(0)
-            
-            # Filter Anti-Gila: Hanya hitung barang dengan harga > 0 dan di bawah Rp 10 Miliar
             df_valid = df_master[(df_master['HARGA_NUM'] > 0) & (df_master['HARGA_NUM'] <= 10000000000)]
             
-            avg_price = df_valid.groupby('KATEGORI')['HARGA_NUM'].mean().sort_values(ascending=False).head(10)
+            avg_price = df_valid[df_valid['KATEGORI'] != '-'].groupby('KATEGORI')['HARGA_NUM'].mean().sort_values(ascending=False).head(10)
             
             if not avg_price.empty:
                 st.bar_chart(avg_price)
