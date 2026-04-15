@@ -21,8 +21,8 @@ with st.sidebar:
     
     menu = option_menu(
         menu_title="", 
-        options=["Pembersihan Nama", "Update Master Data", "Cari Vendor", "Fitur Mendatang"],
-        icons=["magic", "database-add", "search", "gear"], 
+        options=["Pembersihan Nama", "Update Master Data", "Cari Vendor", "Dashboard Laporan"],
+        icons=["magic", "database-add", "search", "bar-chart-line"], 
         default_index=0,
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
@@ -63,7 +63,11 @@ try:
     df_master = df_master[df_master['NAMA BAKU'].astype(str).str.strip().str.lower() != "(blank)"]
     if 'KATEGORI' in df_master.columns: df_master['KATEGORI'] = df_master['KATEGORI'].ffill()
     if 'DETAIL KATEGORI' in df_master.columns: df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill()
-    df_master['KATA KUNCI'] = df_master.get('KATA KUNCI', "").fillna("")
+    
+    # Memprioritaskan kolom KATA KUNCI, jika tidak ada, gunakan NAMA ITEM sebagai bahan tebakan
+    kata_kunci = df_master.get('KATA KUNCI', df_master.get('NAMA ITEM', ""))
+    df_master['KATA KUNCI'] = kata_kunci.fillna("")
+    
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
     master_map = df_master.drop_duplicates(subset=['NAMA BAKU']).set_index('NAMA BAKU').to_dict('index')
     list_lookup = df_master['Lookup'].tolist()
@@ -109,11 +113,10 @@ if menu == "Pembersihan Nama":
         
         if file_po:
             try:
-                # 1. Deteksi Header Otomatis (Tahan Banting terhadap Angka/Float)
+                # 1. Deteksi Header Otomatis (Anti-Error Float)
                 raw_excel = pd.read_excel(file_po, header=None)
                 header_idx = -1
                 for i, row in raw_excel.iterrows():
-                    # PERBAIKAN BUG: Pastikan setiap sel diubah jadi string dulu sebelum digabung
                     row_str = " ".join([str(val).upper() for val in row.values])
                     if 'NAMA BARANG' in row_str or 'NAMA ITEM' in row_str:
                         header_idx = i
@@ -128,31 +131,26 @@ if menu == "Pembersihan Nama":
                     tgl_saat_ini = "-"
                     final_data = []
                     
-                    # Cari tau kolom krusial
                     col_barang = [c for c in df_po.columns if 'NAMA BARANG' in c or 'NAMA ITEM' in c][0]
                     col_qty = [c for c in df_po.columns if 'QTY' in c]
                     col_qty_name = col_qty[0] if col_qty else None
                     col_harga = [c for c in df_po.columns if 'HARGA' in c]
                     col_harga_name = col_harga[0] if col_harga else None
                     col_tgl = [c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c]
-                    col_ref = df_po.columns[0] # Kolom pertama biasanya buat vendor/no bukti
+                    col_ref = df_po.columns[0]
                     
                     for i, row in df_po.iterrows():
                         val_ref = str(row[col_ref]) if not pd.isna(row[col_ref]) else ""
                         val_barang = str(row[col_barang]) if not pd.isna(row[col_barang]) else ""
                         
-                        # Logika Tangkap Vendor
                         if (not val_barang or val_barang.lower() == 'nan') and val_ref and val_ref.lower() != 'nan':
                             if "JUMLAH" not in val_ref.upper() and "SUBTOTAL" not in val_ref.upper(): 
                                 vendor_saat_ini = val_ref
                         
-                        # Logika Tangkap Tanggal
                         if col_tgl and not pd.isna(row[col_tgl[0]]) and str(row[col_tgl[0]]).lower() != 'nan':
                             tgl_val = str(row[col_tgl[0]])
-                            if len(tgl_val) > 4: 
-                                tgl_saat_ini = tgl_val
+                            if len(tgl_val) > 4: tgl_saat_ini = tgl_val
                         
-                        # Logika Simpan Barang
                         if val_barang and val_barang.lower() != 'nan' and "JUMLAH" not in val_barang.upper() and "SUBTOTAL" not in val_barang.upper():
                             qty_val = row[col_qty_name] if col_qty_name else 0
                             harga_val = row[col_harga_name] if col_harga_name else 0
@@ -237,26 +235,29 @@ if menu == "Pembersihan Nama":
                 except Exception as e:
                     st.warning(f"Gagal memproses rekap. Pastikan ada angka di QTY dan Harga. Error: {e}")
 
-# ==========================================
-# MENU 3: CARI VENDOR
-# ==========================================
-elif menu == "Cari Vendor":
-    st.header("Database Vendor")
-    keyword = st.text_input("Cari Vendor / Barang:")
-    if keyword:
-        try:
-            df_v = load_data(GID_VENDOR)
-            df_v.columns = df_v.columns.str.strip().str.upper()
-            res = df_v[df_v.astype(str).apply(lambda x: x.str.contains(keyword, case=False)).any(axis=1)]
-            if not res.empty:
-                for _, v in res.iterrows():
-                    with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - {v.get('KATEGORI', '-')}"):
-                        st.write(f"**PIC:** {v.get('PIC', '-')} | **Kontak:** {v.get('KONTAK', '-')}")
-            else: st.warning("Vendor tidak ditemukan.")
-        except Exception as e: st.error("Gagal Load Vendor")
+    with tab_cari:
+        st.write("### Mesin Pencari Master Data")
+        kata_cari = st.text_input("Ketik nama barang atau singkatan (contoh: knee, aki, kabel):")
+        if kata_cari:
+            hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
+            data_tabel = []
+            for match in hasil_cari:
+                skor = round(match[1], 2)
+                kunci = match[0]
+                if skor >= 30:
+                    baku = lookup_to_baku[kunci]
+                    info = master_map.get(baku, {})
+                    data_tabel.append({
+                        "Skor Kemiripan": f"{skor}%", "Nama Baku di Sistem": baku,
+                        "Kategori": info.get('KATEGORI', '-'), "SKU": info.get('NOMOR SKU', '-')
+                    })
+            if data_tabel:
+                st.dataframe(pd.DataFrame(data_tabel), use_container_width=True)
+            else:
+                st.warning("⚠️ Tidak ada barang yang mirip di database.")
 
 # ==========================================
-# MENU 4: UPDATE MASTER DATA
+# MENU 2: UPDATE MASTER DATA
 # ==========================================
 elif menu == "Update Master Data":
     st.header("Input Master Item Baru")
@@ -282,8 +283,67 @@ elif menu == "Update Master Data":
         st.warning("⚠️ Untuk keamanan data, saat ini penambahan master data langsung dilakukan dari Google Sheets.")
 
 # ==========================================
-# MENU 5: FITUR MENDATANG
+# MENU 3: CARI VENDOR
 # ==========================================
-elif menu == "Fitur Mendatang":
-    st.header("Fitur Mendatang")
-    st.write("Ruang ini disiapkan untuk Dashboard Grafik & Rekap PO per bulan.")
+elif menu == "Cari Vendor":
+    st.header("Database Vendor")
+    keyword = st.text_input("Cari Vendor / Barang:")
+    if keyword:
+        try:
+            df_v = load_data(GID_VENDOR)
+            df_v.columns = df_v.columns.str.strip().str.upper()
+            res = df_v[df_v.astype(str).apply(lambda x: x.str.contains(keyword, case=False)).any(axis=1)]
+            if not res.empty:
+                for _, v in res.iterrows():
+                    with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - {v.get('KATEGORI', '-')}"):
+                        st.write(f"**PIC:** {v.get('PIC', '-')} | **Kontak:** {v.get('KONTAK', '-')}")
+            else: st.warning("Vendor tidak ditemukan.")
+        except Exception as e: st.error("Gagal Load Vendor")
+
+# ==========================================
+# MENU 4: DASHBOARD LAPORAN (92K Data Ready)
+# ==========================================
+elif menu == "Dashboard Laporan":
+    st.header("📊 Dashboard Analisa Purchasing")
+    st.write("Visualisasi interaktif dari puluhan ribu Master Data Anda.")
+    
+    if not df_master.empty:
+        # 1. Baris KPI (Kartu Angka)
+        col1, col2, col3 = st.columns(3)
+        col1.info(f"📦 **Total Data Barang:** {len(df_master):,} Item")
+        col2.success(f"🗂️ **Total Kategori:** {df_master['KATEGORI'].nunique()} Kategori")
+        v_count = df_master['VENDOR'].nunique() if 'VENDOR' in df_master.columns else 0
+        col3.warning(f"🏢 **Total Vendor:** {v_count} Vendor")
+        
+        st.write("---")
+        
+        # 2. Grafik Distribusi Kategori & Vendor
+        col_chart1, col_chart2 = st.columns(2)
+        with col_chart1:
+            st.write("#### 📊 Top 10 Kategori Barang")
+            cat_count = df_master['KATEGORI'].value_counts().head(10)
+            st.bar_chart(cat_count)
+            
+        with col_chart2:
+            st.write("#### 🏢 Top 10 Vendor Tersering")
+            if 'VENDOR' in df_master.columns:
+                df_ven = df_master[~df_master['VENDOR'].isin(['-', '', 'nan', '#REF!'])]
+                ven_count = df_ven['VENDOR'].value_counts().head(10)
+                st.bar_chart(ven_count)
+        
+        st.write("---")
+        
+        # 3. Grafik Harga per Kategori
+        st.write("#### 💰 Rata-Rata Harga per Kategori (Top 10)")
+        if 'HARGA' in df_master.columns:
+            # Membersihkan huruf, koma, spasi, Rp agar menjadi angka murni untuk dihitung
+            df_master['HARGA_NUM'] = pd.to_numeric(df_master['HARGA'].astype(str).str.replace(r'[^0-9]', '', regex=True), errors='coerce').fillna(0)
+            
+            avg_price = df_master[df_master['HARGA_NUM'] > 0].groupby('KATEGORI')['HARGA_NUM'].mean().sort_values(ascending=False).head(10)
+            if not avg_price.empty:
+                st.bar_chart(avg_price)
+            else:
+                st.info("Belum ada data harga angka yang bisa dianalisa.")
+                
+    else:
+        st.warning("Data Master masih kosong atau sedang dimuat.")
