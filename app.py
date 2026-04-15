@@ -64,7 +64,6 @@ try:
     if 'KATEGORI' in df_master.columns: df_master['KATEGORI'] = df_master['KATEGORI'].ffill()
     if 'DETAIL KATEGORI' in df_master.columns: df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill()
     
-    # Memprioritaskan kolom KATA KUNCI, jika tidak ada, gunakan NAMA ITEM sebagai bahan tebakan
     kata_kunci = df_master.get('KATA KUNCI', df_master.get('NAMA ITEM', ""))
     df_master['KATA KUNCI'] = kata_kunci.fillna("")
     
@@ -113,7 +112,6 @@ if menu == "Pembersihan Nama":
         
         if file_po:
             try:
-                # 1. Deteksi Header Otomatis (Anti-Error Float)
                 raw_excel = pd.read_excel(file_po, header=None)
                 header_idx = -1
                 for i, row in raw_excel.iterrows():
@@ -126,7 +124,6 @@ if menu == "Pembersihan Nama":
                     df_po = pd.read_excel(file_po, skiprows=header_idx)
                     df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
                     
-                    # 2. Algoritma 'Context Tracker' (Vendor & Tanggal)
                     vendor_saat_ini = "-"
                     tgl_saat_ini = "-"
                     final_data = []
@@ -235,29 +232,26 @@ if menu == "Pembersihan Nama":
                 except Exception as e:
                     st.warning(f"Gagal memproses rekap. Pastikan ada angka di QTY dan Harga. Error: {e}")
 
-    with tab_cari:
-        st.write("### Mesin Pencari Master Data")
-        kata_cari = st.text_input("Ketik nama barang atau singkatan (contoh: knee, aki, kabel):")
-        if kata_cari:
-            hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
-            data_tabel = []
-            for match in hasil_cari:
-                skor = round(match[1], 2)
-                kunci = match[0]
-                if skor >= 30:
-                    baku = lookup_to_baku[kunci]
-                    info = master_map.get(baku, {})
-                    data_tabel.append({
-                        "Skor Kemiripan": f"{skor}%", "Nama Baku di Sistem": baku,
-                        "Kategori": info.get('KATEGORI', '-'), "SKU": info.get('NOMOR SKU', '-')
-                    })
-            if data_tabel:
-                st.dataframe(pd.DataFrame(data_tabel), use_container_width=True)
-            else:
-                st.warning("⚠️ Tidak ada barang yang mirip di database.")
+# ==========================================
+# MENU 3: CARI VENDOR
+# ==========================================
+elif menu == "Cari Vendor":
+    st.header("Database Vendor")
+    keyword = st.text_input("Cari Vendor / Barang:")
+    if keyword:
+        try:
+            df_v = load_data(GID_VENDOR)
+            df_v.columns = df_v.columns.str.strip().str.upper()
+            res = df_v[df_v.astype(str).apply(lambda x: x.str.contains(keyword, case=False)).any(axis=1)]
+            if not res.empty:
+                for _, v in res.iterrows():
+                    with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - {v.get('KATEGORI', '-')}"):
+                        st.write(f"**PIC:** {v.get('PIC', '-')} | **Kontak:** {v.get('KONTAK', '-')}")
+            else: st.warning("Vendor tidak ditemukan.")
+        except Exception as e: st.error("Gagal Load Vendor")
 
 # ==========================================
-# MENU 2: UPDATE MASTER DATA
+# MENU 4: UPDATE MASTER DATA
 # ==========================================
 elif menu == "Update Master Data":
     st.header("Input Master Item Baru")
@@ -283,25 +277,7 @@ elif menu == "Update Master Data":
         st.warning("⚠️ Untuk keamanan data, saat ini penambahan master data langsung dilakukan dari Google Sheets.")
 
 # ==========================================
-# MENU 3: CARI VENDOR
-# ==========================================
-elif menu == "Cari Vendor":
-    st.header("Database Vendor")
-    keyword = st.text_input("Cari Vendor / Barang:")
-    if keyword:
-        try:
-            df_v = load_data(GID_VENDOR)
-            df_v.columns = df_v.columns.str.strip().str.upper()
-            res = df_v[df_v.astype(str).apply(lambda x: x.str.contains(keyword, case=False)).any(axis=1)]
-            if not res.empty:
-                for _, v in res.iterrows():
-                    with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - {v.get('KATEGORI', '-')}"):
-                        st.write(f"**PIC:** {v.get('PIC', '-')} | **Kontak:** {v.get('KONTAK', '-')}")
-            else: st.warning("Vendor tidak ditemukan.")
-        except Exception as e: st.error("Gagal Load Vendor")
-
-# ==========================================
-# MENU 4: DASHBOARD LAPORAN (92K Data Ready)
+# MENU 5: DASHBOARD LAPORAN (BUG FIXED)
 # ==========================================
 elif menu == "Dashboard Laporan":
     st.header("📊 Dashboard Analisa Purchasing")
@@ -333,17 +309,25 @@ elif menu == "Dashboard Laporan":
         
         st.write("---")
         
-        # 3. Grafik Harga per Kategori
+        # 3. Grafik Harga per Kategori (ANTI-MABUK MODE)
         st.write("#### 💰 Rata-Rata Harga per Kategori (Top 10)")
         if 'HARGA' in df_master.columns:
-            # Membersihkan huruf, koma, spasi, Rp agar menjadi angka murni untuk dihitung
-            df_master['HARGA_NUM'] = pd.to_numeric(df_master['HARGA'].astype(str).str.replace(r'[^0-9]', '', regex=True), errors='coerce').fillna(0)
+            # Langkah pembersihan cerdas
+            harga_str = df_master['HARGA'].astype(str).str.upper().str.replace('RP', '', regex=False)
+            harga_str = harga_str.str.split(',').str[0] # Buang ,00
+            harga_str = harga_str.str.replace(r'[^0-9]', '', regex=True) # Sisakan angka murni
             
-            avg_price = df_master[df_master['HARGA_NUM'] > 0].groupby('KATEGORI')['HARGA_NUM'].mean().sort_values(ascending=False).head(10)
+            df_master['HARGA_NUM'] = pd.to_numeric(harga_str, errors='coerce').fillna(0)
+            
+            # Filter Anti-Gila: Hanya hitung barang dengan harga > 0 dan di bawah Rp 10 Miliar
+            df_valid = df_master[(df_master['HARGA_NUM'] > 0) & (df_master['HARGA_NUM'] <= 10000000000)]
+            
+            avg_price = df_valid.groupby('KATEGORI')['HARGA_NUM'].mean().sort_values(ascending=False).head(10)
+            
             if not avg_price.empty:
                 st.bar_chart(avg_price)
             else:
-                st.info("Belum ada data harga angka yang bisa dianalisa.")
+                st.info("Belum ada data harga angka yang valid untuk dianalisa.")
                 
     else:
         st.warning("Data Master masih kosong atau sedang dimuat.")
