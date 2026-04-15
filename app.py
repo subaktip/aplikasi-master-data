@@ -138,33 +138,46 @@ if menu == "Pembersihan Nama":
                     tgl_saat_ini = "-"
                     final_data = []
                     
-                    col_barang = [c for c in df_po.columns if 'NAMA BARANG' in c or 'NAMA ITEM' in c][0]
-                    col_qty = [c for c in df_po.columns if 'QTY' in c]
-                    col_qty_name = col_qty[0] if col_qty else None
-                    col_harga = [c for c in df_po.columns if 'HARGA' in c]
-                    col_harga_name = col_harga[0] if col_harga else None
-                    col_tgl = [c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c]
-                    col_ref = df_po.columns[0]
+                    # [UPDATE PINTAR]: Pencarian Kolom Dinamis
+                    col_barang = next((c for c in df_po.columns if 'BARANG' in c or 'ITEM' in c), df_po.columns[1])
+                    col_qty_name = next((c for c in df_po.columns if 'QTY' in c), None)
+                    col_harga_name = next((c for c in df_po.columns if 'HARGA' in c), None)
+                    
+                    # [UPDATE PINTAR]: Mentoleransi 'T.', 'T', 'DATE', 'TGL'
+                    col_tgl_name = next((c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c or c.replace('.', '').strip() in ['T', 'DATE']), None)
                     
                     for i, row in df_po.iterrows():
-                        val_ref = str(row[col_ref]) if not pd.isna(row[col_ref]) else ""
-                        val_barang = str(row[col_barang]) if not pd.isna(row[col_barang]) else ""
+                        val_barang = str(row[col_barang]).strip()
+                        is_barang_empty = (val_barang == '' or val_barang.lower() == 'nan' or 'UNNAMED' in val_barang.upper())
                         
-                        if (not val_barang or val_barang.lower() == 'nan') and val_ref and val_ref.lower() != 'nan':
-                            if "JUMLAH" not in val_ref.upper() and "SUBTOTAL" not in val_ref.upper(): 
-                                vendor_saat_ini = val_ref
+                        # [UPDATE PINTAR]: Jaring Penyapu Vendor (Cek semua kolom sebaris)
+                        if is_barang_empty:
+                            for val in row.values:
+                                v_str = str(val).strip()
+                                if v_str and v_str.lower() != 'nan':
+                                    v_up = v_str.upper()
+                                    # Pastikan itu bukan angka murni atau tulisan standar
+                                    if not any(x in v_up for x in ["JUMLAH", "SUBTOTAL", "RP", "TOTAL", "LAPORAN", "S/D"]):
+                                        if len(v_str) > 2 and not v_str.replace('.', '').replace(',', '').isdigit():
+                                            vendor_saat_ini = v_str
+                                            break # Berhenti di tulisan pertama yang ditemukan (Vendor)
                         
-                        if col_tgl and not pd.isna(row[col_tgl[0]]) and str(row[col_tgl[0]]).lower() != 'nan':
-                            tgl_val = str(row[col_tgl[0]])
-                            if len(tgl_val) > 4: tgl_saat_ini = tgl_val
+                        # Tangkap Tanggal
+                        if col_tgl_name:
+                            t_val = str(row[col_tgl_name]).strip()
+                            if t_val and t_val.lower() != 'nan':
+                                if "00:00:00" in t_val: t_val = t_val.split()[0]
+                                if len(t_val) >= 4 and "JUMLAH" not in t_val.upper():
+                                    tgl_saat_ini = t_val
                         
-                        if val_barang and val_barang.lower() != 'nan' and "JUMLAH" not in val_barang.upper() and "SUBTOTAL" not in val_barang.upper():
+                        # Simpan Item
+                        if not is_barang_empty and "JUMLAH" not in val_barang.upper() and "SUBTOTAL" not in val_barang.upper() and val_barang.upper() != "RP":
                             qty_val = row[col_qty_name] if col_qty_name else 0
                             harga_val = row[col_harga_name] if col_harga_name else 0
                             
                             final_data.append({
-                                "ITEM_KOTOR": val_barang, "QTY": qty_val, "HARGA": harga_val,
-                                "VENDOR": vendor_saat_ini, "TANGGAL": tgl_saat_ini
+                                "TANGGAL": tgl_saat_ini, "VENDOR": vendor_saat_ini,
+                                "ITEM_KOTOR": val_barang, "QTY": qty_val, "HARGA": harga_val
                             })
                     
                     df_clean = pd.DataFrame(final_data)
@@ -176,18 +189,21 @@ if menu == "Pembersihan Nama":
                             match = process.extractOne(str(r['ITEM_KOTOR']), list_lookup, scorer=fuzz.token_set_ratio)
                             if match and match[1] >= 70:
                                 baku = lookup_to_baku[match[0]]; info = master_map.get(baku, {})
+                                # Layout: Tanggal & Vendor pindah ke urutan depan
                                 hasil_rows.append({
-                                    "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": baku, "KATEGORI": info.get('KATEGORI', '-'), 
-                                    "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'), "NOMOR SKU": info.get('NOMOR SKU', '-'),
-                                    "SATUAN": info.get('SATUAN', '-'), "HARGA": r['HARGA'], "QTY": r['QTY'], 
-                                    "VENDOR": r['VENDOR'], "GRUP": "-", "TANGGAL": r['TANGGAL']
+                                    "TANGGAL": r['TANGGAL'], "VENDOR": r['VENDOR'],
+                                    "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": baku, 
+                                    "QTY": r['QTY'], "SATUAN": info.get('SATUAN', '-'), "HARGA": r['HARGA'], 
+                                    "KATEGORI": info.get('KATEGORI', '-'), "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'), 
+                                    "NOMOR SKU": info.get('NOMOR SKU', '-')
                                 })
                             else:
                                 hasil_rows.append({
-                                    "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": "⚠️ CEK MANUAL", "KATEGORI": "-", 
-                                    "DETAIL KATEGORI": "-", "NOMOR SKU": "-", "SATUAN": "-", 
-                                    "HARGA": r['HARGA'], "QTY": r['QTY'], "VENDOR": r['VENDOR'], 
-                                    "GRUP": "-", "TANGGAL": r['TANGGAL']
+                                    "TANGGAL": r['TANGGAL'], "VENDOR": r['VENDOR'],
+                                    "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": "⚠️ CEK MANUAL", 
+                                    "QTY": r['QTY'], "SATUAN": "-", "HARGA": r['HARGA'], 
+                                    "KATEGORI": "-", "DETAIL KATEGORI": "-", 
+                                    "NOMOR SKU": "-"
                                 })
                         st.session_state['hasil_bersih'] = pd.DataFrame(hasil_rows)
                 else:
@@ -290,7 +306,7 @@ elif menu == "Update Master Data":
         st.warning("⚠️ Untuk keamanan data, saat ini penambahan master data langsung dilakukan dari Google Sheets.")
 
 # ==========================================
-# MENU 3: CARI VENDOR (SUDAH KEMBALI LENGKAP!)
+# MENU 3: CARI VENDOR
 # ==========================================
 elif menu == "Cari Vendor":
     st.header("Database Vendor")
@@ -302,9 +318,7 @@ elif menu == "Cari Vendor":
             res = df_v[df_v.astype(str).apply(lambda x: x.str.contains(keyword, case=False)).any(axis=1)]
             if not res.empty:
                 for _, v in res.iterrows():
-                    # Format expander judul
                     with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - {v.get('KATEGORI', '-')} (PIC: {v.get('PIC', '-')})"):
-                        # Format 2 Kolom Lengkap
                         col1, col2 = st.columns(2)
                         with col1:
                             st.write(f"**📍 Alamat:** {v.get('ALAMAT', '-')}")
