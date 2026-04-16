@@ -108,18 +108,17 @@ def generate_new_sku(kat_full, det_full):
     return f"{prefix}-{c_kat}-{c_det}-{next_val:03d}"
 
 # ==========================================
-# MENU 1: PEMBERSIHAN PO (AUTO-DETECT UNIT KERJA)
+# MENU 1: PEMBERSIHAN PO
 # ==========================================
 if menu == "Pembersihan PO":
     st.header("Upload & Pembersihan Laporan PO")
     
-    # [UPDATE]: Tambah opsi Auto-Detect dan Plant Baru
     pilihan_unit = [
         "- Auto-Detect dari Keterangan -", 
         "PBI CPR", "PBI PML", "PBI MAUK", "PP CUP", 
         "PIH", "PIH BHN PENOLONG", "RA", "PGP"
     ]
-    unit_kerja = st.selectbox("🏢 Pilih Unit Kerja (Pilih Auto-Detect agar robot membaca alamat):", pilihan_unit)
+    unit_kerja = st.selectbox("🏢 Pilih Unit Kerja:", pilihan_unit)
     
     file_po = st.file_uploader("Upload Excel Laporan (.xlsx/.xls)", type=["xlsx", "xls"])
     
@@ -136,20 +135,25 @@ if menu == "Pembersihan PO":
                 df_po = pd.read_excel(file_po, skiprows=header_idx)
                 df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
                 
-                vendor_saat_ini, tgl_saat_ini, final_data = "-", "-", []
+                # [UPDATE MEMORY]: Robot disiapkan dengan ingatan kosong
+                vendor_saat_ini = "-"
+                tgl_saat_ini = "-"
+                po_saat_ini = "-"
+                unit_saat_ini = "BELUM DITENTUKAN"
+                final_data = []
+                
                 col_po = next((c for c in df_po.columns if 'BUKTI' in c or 'PO' in c), df_po.columns[0])
                 col_barang = next((c for c in df_po.columns if 'BARANG' in c or 'ITEM' in c), df_po.columns[1])
                 col_qty = next((c for c in df_po.columns if 'QTY' in c), None)
                 col_harga = next((c for c in df_po.columns if 'HARGA' in c), None)
                 col_tgl = next((c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c or c.replace('.', '').strip() in ['T', 'DATE']), None)
-                
-                # [FITUR BARU]: Cari Kolom Keterangan
-                col_ket = next((c for c in df_po.columns if 'KETERANGAN' in c or 'KET' in c), None)
+                col_ket = next((c for c in df_po.columns if 'KETERANGAN' in c or 'KET' in c or 'ALAMAT' in c), None)
                 
                 for i, row in df_po.iterrows():
                     val_barang = str(row[col_barang]).strip()
                     is_empty = (val_barang == '' or val_barang.lower() == 'nan' or 'UNNAMED' in val_barang.upper())
                     
+                    # 1. Ingat Vendor
                     if is_empty:
                         for val in row.values:
                             v_str = str(val).strip()
@@ -157,31 +161,36 @@ if menu == "Pembersihan PO":
                                 if len(v_str) > 2 and not v_str.replace('.', '').replace(',', '').isdigit():
                                     vendor_saat_ini = v_str; break 
                     
+                    # 2. Ingat Tanggal
                     if col_tgl and not pd.isna(row[col_tgl]):
                         t_val = str(row[col_tgl]).strip()
-                        if len(t_val) >= 4 and "JUMLAH" not in t_val.upper(): tgl_saat_ini = t_val.split()[0]
+                        if len(t_val) >= 4 and "JUMLAH" not in t_val.upper(): 
+                            tgl_saat_ini = t_val.split()[0]
                     
-                    po_val = str(row[col_po]).strip() if col_po else "-"
-                    
-                    # [LOGIKA SAKTI]: Deteksi Unit Kerja dari Keterangan
+                    # 3. Ingat PO (Filter wajib mengandung angka)
+                    curr_po = str(row[col_po]).strip() if col_po else ""
+                    if curr_po and curr_po.lower() != 'nan':
+                        if any(char.isdigit() for char in curr_po):
+                            po_saat_ini = curr_po
+                            
+                    # 4. Ingat Unit Kerja dari Keterangan
                     ket_val = str(row[col_ket]).strip().upper() if col_ket else ""
-                    row_unit = unit_kerja
-                    
-                    if unit_kerja == "- Auto-Detect dari Keterangan -":
+                    if ket_val and ket_val.lower() != 'nan':
                         if "KEAMANAN" in ket_val:
-                            row_unit = "PBI CPR"
+                            unit_saat_ini = "PBI CPR"
                         elif "ARYA KEMUNING" in ket_val:
-                            row_unit = "PBI MAUK"
+                            unit_saat_ini = "PBI MAUK"
                         elif "AGUS HALIM" in ket_val:
-                            row_unit = "PP CUP"
+                            unit_saat_ini = "PP CUP"
                         elif "PEMALANG" in ket_val:
-                            row_unit = "PBI PML"
-                        else:
-                            row_unit = "BELUM DITENTUKAN" # Kalau alamat kosong/tidak sesuai keyword
+                            unit_saat_ini = "PBI PML"
+                            
+                    # Tentukan Unit Kerja Final
+                    row_unit = unit_saat_ini if unit_kerja == "- Auto-Detect dari Keterangan -" else unit_kerja
                     
                     if not is_empty and "JUMLAH" not in val_barang.upper() and val_barang.upper() != "RP":
                         final_data.append({
-                            "UNIT KERJA": row_unit, "NO PO": po_val, "TANGGAL": tgl_saat_ini, 
+                            "UNIT KERJA": row_unit, "NO PO": po_saat_ini, "TANGGAL": tgl_saat_ini, 
                             "VENDOR": vendor_saat_ini, "ITEM_KOTOR": val_barang, 
                             "QTY": row[col_qty] if col_qty else 0, "HARGA": row[col_harga] if col_harga else 0
                         })
@@ -232,42 +241,32 @@ if menu == "Pembersihan PO":
             
             if len(new_items) > 0:
                 item_select = st.selectbox("Pilih barang yang ingin didaftarkan SKU-nya:", new_items)
-                
                 c_a, c_b = st.columns(2)
-                
                 with c_a:
                     kat_list = sorted([k for k in df_master['KATEGORI'].unique() if k and k != '-'])
                     kat_list.append("✨ + Tambah Kategori Baru...")
                     kat_dropdown = st.selectbox("Kategori:", kat_list)
-                    
                     if kat_dropdown == "✨ + Tambah Kategori Baru...":
                         kat_sel = st.text_input("Ketik Kategori Baru (Format: NAMA (KODE)):", placeholder="Contoh: ATK (050)")
-                    else:
-                        kat_sel = kat_dropdown
+                    else: kat_sel = kat_dropdown
 
                 with c_b:
                     if kat_dropdown != "✨ + Tambah Kategori Baru...":
                         det_list = sorted([d for d in df_master[df_master['KATEGORI'] == kat_dropdown]['DETAIL KATEGORI'].unique() if d and d != '-'])
-                    else:
-                        det_list = []
-                        
+                    else: det_list = []
                     det_list.append("✨ + Tambah Detail Baru...")
                     det_dropdown = st.selectbox("Detail Kategori:", det_list)
-                    
                     if det_dropdown == "✨ + Tambah Detail Baru...":
                         det_sel = st.text_input("Ketik Detail Baru (Format: NAMA (KODE)):", placeholder="Contoh: KERTAS (001)")
-                    else:
-                        det_sel = det_dropdown
+                    else: det_sel = det_dropdown
                 
                 if kat_sel and det_sel:
                     sku_baru = generate_new_sku(kat_sel, det_sel)
                     st.info(f"**Saran SKU Baru:** `{sku_baru}`")
-                    
                     if st.button("🔥 Daftarkan & Update PO", type="primary"):
                         try:
                             row_data = st.session_state['hasil_po'][st.session_state['hasil_po']['NAMA ITEM'] == item_select].iloc[0]
-                            client = get_gspread_client()
-                            sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
+                            client = get_gspread_client(); sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
                             
                             new_master_row = [
                                 item_select, item_select, kat_sel, det_sel, sku_baru, "", "PCS",
@@ -284,11 +283,9 @@ if menu == "Pembersihan PO":
                             st.success(f"Mantap Bosku! Barang {item_select} masuk ke Master Data & siap masuk ke Dashboard Sheet 4!")
                             time.sleep(1); st.rerun()
                         except Exception as e: st.error(f"Gagal Registrasi: {e}")
-            else:
-                st.success("Semua barang di laporan ini sudah terdaftar. Mantap!")
+            else: st.success("Semua barang di laporan ini sudah terdaftar. Mantap!")
 
-        with t3:
-            st.write("Lakukan pengiriman data di Tab 1 untuk melihat rekapitulasi.")
+        with t3: st.write("Lakukan pengiriman data di Tab 1 untuk melihat rekapitulasi.")
 
 # ==========================================
 # MENU 2: PENCARIAN BARANG
