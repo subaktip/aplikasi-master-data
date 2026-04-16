@@ -43,6 +43,7 @@ with st.sidebar:
 SHEET_ID = "1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ"
 GID_MASTER = "0"          
 GID_VENDOR = "168217676"  
+GID_DASHBOARD = "1722600044" # [UPDATE]: GID Khusus Sheet 4 (Transaksi PO)
 
 def get_gspread_client():
     key_dict = json.loads(st.secrets["google_json"])
@@ -60,7 +61,7 @@ def format_rupiah(angka):
     try: return f"Rp {int(angka):,}".replace(',', '.')
     except: return "Rp 0"
 
-# --- PERSIAPAN KAMUS PINTAR ---
+# --- PERSIAPAN KAMUS PINTAR (DARI SHEET 1) ---
 try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
@@ -163,7 +164,7 @@ if menu == "Pembersihan PO":
                                 "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": baku, 
                                 "QTY": r['QTY'], "SATUAN": info.get('SATUAN', '-'), "HARGA": r['HARGA'], 
                                 "KATEGORI": info.get('KATEGORI', '-'), "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'), 
-                                "NOMOR SKU": info.get('NOMOR SKU', '-')
+                                "SKU": info.get('NOMOR SKU', '-')
                             })
                         else:
                             hasil_rows.append({
@@ -171,7 +172,7 @@ if menu == "Pembersihan PO":
                                 "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": "⚠️ CEK MANUAL", 
                                 "QTY": r['QTY'], "SATUAN": "-", "HARGA": r['HARGA'], 
                                 "KATEGORI": "-", "DETAIL KATEGORI": "-", 
-                                "NOMOR SKU": "-"
+                                "SKU": "-"
                             })
                     st.session_state['hasil_bersih'] = pd.DataFrame(hasil_rows)
             else:
@@ -227,7 +228,7 @@ if menu == "Pembersihan PO":
                 st.warning("Gagal memproses rekap. Pastikan ada angka di QTY dan Harga.")
 
 # ==========================================
-# MENU 2: PENCARIAN BARANG (UPDATE SKU)
+# MENU 2: PENCARIAN BARANG
 # ==========================================
 elif menu == "Pencarian Barang":
     st.header("🔍 Kamus & Histori Barang")
@@ -246,7 +247,6 @@ elif menu == "Pencarian Barang":
                 baku = lookup_to_baku[kunci]
                 info = master_map.get(baku, {}) 
                 
-                # [UPDATE]: Kolom SKU sudah dimasukkan ke sini!
                 data_tabel.append({
                     "Akurasi": f"{skor}%",
                     "Nama Baku (Standar)": baku,
@@ -301,68 +301,82 @@ elif menu == "Database Vendor":
             st.error("Gagal Load Database Vendor. Pastikan tab vendor ada dan GID benar.")
 
 # ==========================================
-# MENU 4: DASHBOARD LAPORAN
+# MENU 4: DASHBOARD LAPORAN (DARI SHEET 4 / TRANSAKSI PO)
 # ==========================================
 elif menu == "Dashboard Laporan":
     st.header("📊 Dashboard Analisa Purchasing")
-    st.write("Visualisasi interaktif dari puluhan ribu Master Data Anda.")
+    st.write("Visualisasi interaktif berdasarkan **Riwayat Transaksi Aktual PO** Anda.")
     
-    if not df_master.empty:
-        col1, col2, col3 = st.columns(3)
-        col1.info(f"📦 **Total Data Barang:** {len(df_master):,} Item")
+    try:
+        # [UPDATE]: Memuat data khusus dari Sheet 4 (Transaksi PO)
+        df_dash = load_data(GID_DASHBOARD)
+        df_dash.columns = df_dash.columns.str.strip().str.upper()
         
-        cat_valid = df_master[df_master['KATEGORI'] != '-']['KATEGORI'].nunique()
-        col2.success(f"🗂️ **Total Kategori:** {cat_valid} Kategori")
-        
-        if 'VENDOR' in df_master.columns:
-            ven_valid = df_master[~df_master['VENDOR'].isin(['-', ''])]["VENDOR"].nunique()
+        if not df_dash.empty:
+            # Standarisasi kolom yang mungkin kosong
+            if 'KATEGORI' in df_dash.columns: df_dash['KATEGORI'] = df_dash['KATEGORI'].fillna('-')
+            if 'VENDOR' in df_dash.columns: df_dash['VENDOR'] = df_dash['VENDOR'].fillna('-')
+            
+            col1, col2, col3 = st.columns(3)
+            col1.info(f"🛒 **Total Transaksi PO:** {len(df_dash):,} Baris")
+            
+            cat_valid = df_dash[df_dash['KATEGORI'] != '-']['KATEGORI'].nunique() if 'KATEGORI' in df_dash.columns else 0
+            col2.success(f"🗂️ **Kategori Dibeli:** {cat_valid} Kategori")
+            
+            if 'VENDOR' in df_dash.columns:
+                ven_valid = df_dash[~df_dash['VENDOR'].isin(['-', ''])]["VENDOR"].nunique()
+            else:
+                ven_valid = 0
+            col3.warning(f"🏢 **Vendor Aktif:** {ven_valid} Vendor")
+            
+            st.write("---")
+            
+            col_chart1, col_chart2 = st.columns(2)
+            with col_chart1:
+                st.write("#### 📊 Top 10 Kategori Sering Dibeli")
+                if 'KATEGORI' in df_dash.columns:
+                    cat_count = df_dash[df_dash['KATEGORI'] != '-']['KATEGORI'].value_counts().head(10)
+                    st.bar_chart(cat_count)
+                
+            with col_chart2:
+                st.write("#### 🏢 Top 10 Vendor Tersering (Aktual)")
+                if 'VENDOR' in df_dash.columns:
+                    df_ven = df_dash[~df_dash['VENDOR'].isin(['-', ''])]
+                    ven_count = df_ven['VENDOR'].value_counts().head(10)
+                    st.bar_chart(ven_count)
+            
+            st.write("---")
+            col_chart3, col_chart4 = st.columns(2)
+            
+            if 'HARGA' in df_dash.columns:
+                # Pembersihan angka harga
+                harga_str = df_dash['HARGA'].astype(str).str.upper().str.replace('RP', '', regex=False)
+                harga_str = harga_str.str.split(',').str[0]
+                harga_str = harga_str.str.replace(r'[^0-9]', '', regex=True)
+                
+                df_dash['HARGA_NUM'] = pd.to_numeric(harga_str, errors='coerce').fillna(0)
+                df_valid = df_dash[(df_dash['HARGA_NUM'] > 0) & (df_dash['HARGA_NUM'] <= 10000000000)]
+                
+                with col_chart3:
+                    st.write("#### 💰 Rata-Rata Harga per Kategori (Aktual)")
+                    if 'KATEGORI' in df_valid.columns:
+                        avg_price = df_valid[df_valid['KATEGORI'] != '-'].groupby('KATEGORI')['HARGA_NUM'].mean().sort_values(ascending=False).head(10)
+                        if not avg_price.empty:
+                            st.bar_chart(avg_price)
+                        else:
+                            st.info("Belum ada data harga angka yang valid.")
+                
+                with col_chart4:
+                    st.write("#### 💎 Top 10 Transaksi Termahal")
+                    if not df_valid.empty and 'NAMA BAKU' in df_valid.columns:
+                        top_mahal = df_valid[['NAMA BAKU', 'HARGA_NUM']].dropna(subset=['NAMA BAKU'])
+                        top_mahal = top_mahal[top_mahal['NAMA BAKU'] != '⚠️ CEK MANUAL']
+                        top_mahal = top_mahal.sort_values(by='HARGA_NUM', ascending=False).drop_duplicates(subset=['NAMA BAKU']).head(10)
+                        top_mahal = top_mahal.set_index('NAMA BAKU')
+                        st.bar_chart(top_mahal)
+                    else:
+                        st.info("Belum ada data harga yang valid.")
         else:
-            ven_valid = 0
-        col3.warning(f"🏢 **Total Vendor:** {ven_valid} Vendor")
-        
-        st.write("---")
-        
-        col_chart1, col_chart2 = st.columns(2)
-        with col_chart1:
-            st.write("#### 📊 Top 10 Kategori Barang")
-            cat_count = df_master[df_master['KATEGORI'] != '-']['KATEGORI'].value_counts().head(10)
-            st.bar_chart(cat_count)
-            
-        with col_chart2:
-            st.write("#### 🏢 Top 10 Vendor Tersering")
-            if 'VENDOR' in df_master.columns:
-                df_ven = df_master[~df_master['VENDOR'].isin(['-', ''])]
-                ven_count = df_ven['VENDOR'].value_counts().head(10)
-                st.bar_chart(ven_count)
-        
-        st.write("---")
-        col_chart3, col_chart4 = st.columns(2)
-        
-        if 'HARGA' in df_master.columns:
-            harga_str = df_master['HARGA'].astype(str).str.upper().str.replace('RP', '', regex=False)
-            harga_str = harga_str.str.split(',').str[0]
-            harga_str = harga_str.str.replace(r'[^0-9]', '', regex=True)
-            
-            df_master['HARGA_NUM'] = pd.to_numeric(harga_str, errors='coerce').fillna(0)
-            df_valid = df_master[(df_master['HARGA_NUM'] > 0) & (df_master['HARGA_NUM'] <= 10000000000)]
-            
-            with col_chart3:
-                st.write("#### 💰 Rata-Rata Harga per Kategori")
-                avg_price = df_valid[df_valid['KATEGORI'] != '-'].groupby('KATEGORI')['HARGA_NUM'].mean().sort_values(ascending=False).head(10)
-                if not avg_price.empty:
-                    st.bar_chart(avg_price)
-                else:
-                    st.info("Belum ada data harga angka yang valid untuk dianalisa.")
-            
-            with col_chart4:
-                st.write("#### 💎 Top 10 Barang Paling Mahal")
-                if not df_valid.empty:
-                    top_mahal = df_valid[['NAMA BAKU', 'HARGA_NUM']].dropna(subset=['NAMA BAKU'])
-                    top_mahal = top_mahal[top_mahal['NAMA BAKU'] != '⚠️ CEK MANUAL']
-                    top_mahal = top_mahal.sort_values(by='HARGA_NUM', ascending=False).drop_duplicates(subset=['NAMA BAKU']).head(10)
-                    top_mahal = top_mahal.set_index('NAMA BAKU')
-                    st.bar_chart(top_mahal)
-                else:
-                    st.info("Belum ada data harga yang valid.")
-    else:
-        st.warning("Data Master masih kosong atau sedang dimuat.")
+            st.warning("Data Transaksi Sheet 4 masih kosong.")
+    except Exception as e:
+        st.error(f"Gagal memuat Dashboard: {e}. Pastikan GID_DASHBOARD benar dan Sheet 4 memiliki data.")
