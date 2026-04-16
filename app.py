@@ -43,7 +43,7 @@ with st.sidebar:
 SHEET_ID = "1MZRYFgzzrmBY2vY5qZRmw_-_jmRg-5eq34Nejin-SaQ"
 GID_MASTER = "0"          
 GID_VENDOR = "168217676"  
-GID_DASHBOARD = "1722600044" # [UPDATE]: GID Khusus Sheet 4 (Transaksi PO)
+GID_DASHBOARD = "1722600044" 
 
 def get_gspread_client():
     key_dict = json.loads(st.secrets["google_json"])
@@ -61,7 +61,7 @@ def format_rupiah(angka):
     try: return f"Rp {int(angka):,}".replace(',', '.')
     except: return "Rp 0"
 
-# --- PERSIAPAN KAMUS PINTAR (DARI SHEET 1) ---
+# --- PERSIAPAN KAMUS PINTAR ---
 try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
@@ -89,96 +89,114 @@ except Exception as e:
     st.error(f"⚠️ Gagal Load Master Data: {e}"); st.stop()
 
 # ==========================================
-# MENU 1: PEMBERSIHAN PO
+# MENU 1: PEMBERSIHAN PO (UPDATE NO PO & UNIT KERJA)
 # ==========================================
 if menu == "Pembersihan PO":
     st.header("Upload & Pembersihan Laporan PO")
-    st.write("Silakan upload file Excel laporan (.xlsx atau .xls). Sistem akan otomatis merapikan format dan menstandarisasi nama barang.")
+    st.write("Silakan pilih **Unit Kerja** lalu upload file Excel laporan (.xlsx atau .xls).")
     
-    file_po = st.file_uploader("", type=["xlsx", "xls"])
+    # [FITUR BARU]: Pemilihan Unit Kerja
+    pilihan_unit = ["- Pilih Unit Kerja -", "PBI CPR", "PBI PML", "PIH", "PIH BHN PENOLONG", "RA", "PGP"]
+    unit_kerja = st.selectbox("🏢 Laporan ini untuk Unit Kerja / Grup apa?", pilihan_unit)
+    
+    file_po = st.file_uploader("Upload Excel", type=["xlsx", "xls"])
     
     if file_po:
-        try:
-            raw_excel = pd.read_excel(file_po, header=None)
-            header_idx = -1
-            for i, row in raw_excel.iterrows():
-                row_str = " ".join([str(val).upper() for val in row.values])
-                if 'NAMA BARANG' in row_str or 'NAMA ITEM' in row_str:
-                    header_idx = i
-                    break
-            
-            if header_idx != -1:
-                df_po = pd.read_excel(file_po, skiprows=header_idx)
-                df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
+        if unit_kerja == "- Pilih Unit Kerja -":
+            st.warning("⚠️ Silakan pilih Unit Kerja terlebih dahulu di atas sebelum memproses file.")
+        else:
+            try:
+                raw_excel = pd.read_excel(file_po, header=None)
+                header_idx = -1
+                for i, row in raw_excel.iterrows():
+                    row_str = " ".join([str(val).upper() for val in row.values])
+                    if 'NAMA BARANG' in row_str or 'NAMA ITEM' in row_str:
+                        header_idx = i
+                        break
                 
-                vendor_saat_ini = "-"
-                tgl_saat_ini = "-"
-                final_data = []
-                
-                col_barang = next((c for c in df_po.columns if 'BARANG' in c or 'ITEM' in c), df_po.columns[1])
-                col_qty_name = next((c for c in df_po.columns if 'QTY' in c), None)
-                col_harga_name = next((c for c in df_po.columns if 'HARGA' in c), None)
-                col_tgl_name = next((c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c or c.replace('.', '').strip() in ['T', 'DATE']), None)
-                
-                for i, row in df_po.iterrows():
-                    val_barang = str(row[col_barang]).strip()
-                    is_barang_empty = (val_barang == '' or val_barang.lower() == 'nan' or 'UNNAMED' in val_barang.upper())
+                if header_idx != -1:
+                    df_po = pd.read_excel(file_po, skiprows=header_idx)
+                    df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
                     
-                    if is_barang_empty:
-                        for val in row.values:
-                            v_str = str(val).strip()
-                            if v_str and v_str.lower() != 'nan':
-                                v_up = v_str.upper()
-                                if not any(x in v_up for x in ["JUMLAH", "SUBTOTAL", "RP", "TOTAL", "LAPORAN", "S/D"]):
-                                    if len(v_str) > 2 and not v_str.replace('.', '').replace(',', '').isdigit():
-                                        vendor_saat_ini = v_str
-                                        break 
+                    vendor_saat_ini = "-"
+                    tgl_saat_ini = "-"
+                    final_data = []
                     
-                    if col_tgl_name:
-                        t_val = str(row[col_tgl_name]).strip()
-                        if t_val and t_val.lower() != 'nan':
-                            if "00:00:00" in t_val: t_val = t_val.split()[0]
-                            if len(t_val) >= 4 and "JUMLAH" not in t_val.upper():
-                                tgl_saat_ini = t_val
+                    # [FITUR BARU]: Cari kolom "NO BUKTI" atau setara
+                    col_po_name = next((c for c in df_po.columns if 'BUKTI' in c or 'PO' in c), df_po.columns[0])
                     
-                    if not is_barang_empty and "JUMLAH" not in val_barang.upper() and "SUBTOTAL" not in val_barang.upper() and val_barang.upper() != "RP":
-                        qty_val = row[col_qty_name] if col_qty_name else 0
-                        harga_val = row[col_harga_name] if col_harga_name else 0
+                    col_barang = next((c for c in df_po.columns if 'BARANG' in c or 'ITEM' in c), df_po.columns[1])
+                    col_qty_name = next((c for c in df_po.columns if 'QTY' in c), None)
+                    col_harga_name = next((c for c in df_po.columns if 'HARGA' in c), None)
+                    col_tgl_name = next((c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c or c.replace('.', '').strip() in ['T', 'DATE']), None)
+                    
+                    for i, row in df_po.iterrows():
+                        val_barang = str(row[col_barang]).strip()
+                        is_barang_empty = (val_barang == '' or val_barang.lower() == 'nan' or 'UNNAMED' in val_barang.upper())
                         
-                        final_data.append({
-                            "TANGGAL": tgl_saat_ini, "VENDOR": vendor_saat_ini,
-                            "ITEM_KOTOR": val_barang, "QTY": qty_val, "HARGA": harga_val
-                        })
-                
-                df_clean = pd.DataFrame(final_data)
-                st.success(f"🤖 Berhasil memproses {len(df_clean)} baris barang.")
-                
-                if st.button("Proses Standardisasi Data", type="primary", use_container_width=True):
-                    hasil_rows = []
-                    for _, r in df_clean.iterrows():
-                        match = process.extractOne(str(r['ITEM_KOTOR']), list_lookup, scorer=fuzz.token_set_ratio)
-                        if match and match[1] >= 70:
-                            baku = lookup_to_baku[match[0]]; info = master_map.get(baku, {})
-                            hasil_rows.append({
-                                "TANGGAL": r['TANGGAL'], "VENDOR": r['VENDOR'],
-                                "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": baku, 
-                                "QTY": r['QTY'], "SATUAN": info.get('SATUAN', '-'), "HARGA": r['HARGA'], 
-                                "KATEGORI": info.get('KATEGORI', '-'), "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'), 
-                                "SKU": info.get('NOMOR SKU', '-')
+                        if is_barang_empty:
+                            for val in row.values:
+                                v_str = str(val).strip()
+                                if v_str and v_str.lower() != 'nan':
+                                    v_up = v_str.upper()
+                                    if not any(x in v_up for x in ["JUMLAH", "SUBTOTAL", "RP", "TOTAL", "LAPORAN", "S/D"]):
+                                        if len(v_str) > 2 and not v_str.replace('.', '').replace(',', '').isdigit():
+                                            vendor_saat_ini = v_str
+                                            break 
+                        
+                        if col_tgl_name:
+                            t_val = str(row[col_tgl_name]).strip()
+                            if t_val and t_val.lower() != 'nan':
+                                if "00:00:00" in t_val: t_val = t_val.split()[0]
+                                if len(t_val) >= 4 and "JUMLAH" not in t_val.upper():
+                                    tgl_saat_ini = t_val
+                                    
+                        # Tangkap Nomor PO
+                        po_val = str(row[col_po_name]).strip() if col_po_name else "-"
+                        if po_val.lower() == 'nan' or not po_val: po_val = "-"
+                        
+                        if not is_barang_empty and "JUMLAH" not in val_barang.upper() and "SUBTOTAL" not in val_barang.upper() and val_barang.upper() != "RP":
+                            qty_val = row[col_qty_name] if col_qty_name else 0
+                            harga_val = row[col_harga_name] if col_harga_name else 0
+                            
+                            final_data.append({
+                                "UNIT KERJA": unit_kerja, "NO PO": po_val,
+                                "TANGGAL": tgl_saat_ini, "VENDOR": vendor_saat_ini,
+                                "ITEM_KOTOR": val_barang, "QTY": qty_val, "HARGA": harga_val
                             })
-                        else:
-                            hasil_rows.append({
-                                "TANGGAL": r['TANGGAL'], "VENDOR": r['VENDOR'],
-                                "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": "⚠️ CEK MANUAL", 
-                                "QTY": r['QTY'], "SATUAN": "-", "HARGA": r['HARGA'], 
-                                "KATEGORI": "-", "DETAIL KATEGORI": "-", 
-                                "SKU": "-"
-                            })
-                    st.session_state['hasil_bersih'] = pd.DataFrame(hasil_rows)
-            else:
-                st.error("Gagal menemukan kolom 'Nama Barang'. Pastikan file Excel tidak kosong.")
-        except Exception as e:
-            st.error(f"Terjadi kesalahan saat membaca file: {e}")
+                    
+                    df_clean = pd.DataFrame(final_data)
+                    st.success(f"🤖 Berhasil memproses {len(df_clean)} baris barang untuk Plant {unit_kerja}.")
+                    
+                    if st.button("Proses Standardisasi Data", type="primary", use_container_width=True):
+                        hasil_rows = []
+                        for _, r in df_clean.iterrows():
+                            match = process.extractOne(str(r['ITEM_KOTOR']), list_lookup, scorer=fuzz.token_set_ratio)
+                            if match and match[1] >= 70:
+                                baku = lookup_to_baku[match[0]]; info = master_map.get(baku, {})
+                                # [UPDATE]: Unit Kerja & No PO ditambahkan ke struktur tabel
+                                hasil_rows.append({
+                                    "UNIT KERJA": r['UNIT KERJA'], "NO PO": r['NO PO'],
+                                    "TANGGAL": r['TANGGAL'], "VENDOR": r['VENDOR'],
+                                    "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": baku, 
+                                    "QTY": r['QTY'], "SATUAN": info.get('SATUAN', '-'), "HARGA": r['HARGA'], 
+                                    "KATEGORI": info.get('KATEGORI', '-'), "DETAIL KATEGORI": info.get('DETAIL KATEGORI', '-'), 
+                                    "SKU": info.get('NOMOR SKU', '-')
+                                })
+                            else:
+                                hasil_rows.append({
+                                    "UNIT KERJA": r['UNIT KERJA'], "NO PO": r['NO PO'],
+                                    "TANGGAL": r['TANGGAL'], "VENDOR": r['VENDOR'],
+                                    "NAMA ITEM": r['ITEM_KOTOR'], "NAMA BAKU": "⚠️ CEK MANUAL", 
+                                    "QTY": r['QTY'], "SATUAN": "-", "HARGA": r['HARGA'], 
+                                    "KATEGORI": "-", "DETAIL KATEGORI": "-", 
+                                    "SKU": "-"
+                                })
+                        st.session_state['hasil_bersih'] = pd.DataFrame(hasil_rows)
+                else:
+                    st.error("Gagal menemukan kolom 'Nama Barang'. Pastikan file Excel tidak kosong.")
+            except Exception as e:
+                st.error(f"Terjadi kesalahan saat membaca file: {e}")
 
     if 'hasil_bersih' in st.session_state:
         df_res = st.session_state['hasil_bersih']
@@ -191,6 +209,7 @@ if menu == "Pembersihan PO":
                 try:
                     with st.spinner("Mengirim..."):
                         client = get_gspread_client(); sheet = client.open_by_key(SHEET_ID).worksheets()[-1]
+                        # Pastikan header Sheets bosku disesuaikan urutannya agar pas dengan data baru ini ya!
                         sheet.append_rows(df_res.fillna("").values.tolist())
                         st.success(f"🔥 Berhasil dikirim ke tab '{sheet.title}'!"); del st.session_state['hasil_bersih']
                 except Exception as e: st.error(f"Gagal: {e}")
@@ -301,24 +320,22 @@ elif menu == "Database Vendor":
             st.error("Gagal Load Database Vendor. Pastikan tab vendor ada dan GID benar.")
 
 # ==========================================
-# MENU 4: DASHBOARD LAPORAN (DARI SHEET 4 / TRANSAKSI PO)
+# MENU 4: DASHBOARD LAPORAN
 # ==========================================
 elif menu == "Dashboard Laporan":
     st.header("📊 Dashboard Analisa Purchasing")
     st.write("Visualisasi interaktif berdasarkan **Riwayat Transaksi Aktual PO** Anda.")
     
     try:
-        # [UPDATE]: Memuat data khusus dari Sheet 4 (Transaksi PO)
         df_dash = load_data(GID_DASHBOARD)
         df_dash.columns = df_dash.columns.str.strip().str.upper()
         
         if not df_dash.empty:
-            # Standarisasi kolom yang mungkin kosong
             if 'KATEGORI' in df_dash.columns: df_dash['KATEGORI'] = df_dash['KATEGORI'].fillna('-')
             if 'VENDOR' in df_dash.columns: df_dash['VENDOR'] = df_dash['VENDOR'].fillna('-')
             
             col1, col2, col3 = st.columns(3)
-            col1.info(f"🛒 **Total Transaksi PO:** {len(df_dash):,} Baris")
+            col1.info(f"🛒 **Total Baris PO:** {len(df_dash):,} Baris")
             
             cat_valid = df_dash[df_dash['KATEGORI'] != '-']['KATEGORI'].nunique() if 'KATEGORI' in df_dash.columns else 0
             col2.success(f"🗂️ **Kategori Dibeli:** {cat_valid} Kategori")
@@ -339,7 +356,7 @@ elif menu == "Dashboard Laporan":
                     st.bar_chart(cat_count)
                 
             with col_chart2:
-                st.write("#### 🏢 Top 10 Vendor Tersering (Aktual)")
+                st.write("#### 🏢 Top 10 Vendor Tersering")
                 if 'VENDOR' in df_dash.columns:
                     df_ven = df_dash[~df_dash['VENDOR'].isin(['-', ''])]
                     ven_count = df_ven['VENDOR'].value_counts().head(10)
@@ -349,7 +366,6 @@ elif menu == "Dashboard Laporan":
             col_chart3, col_chart4 = st.columns(2)
             
             if 'HARGA' in df_dash.columns:
-                # Pembersihan angka harga
                 harga_str = df_dash['HARGA'].astype(str).str.upper().str.replace('RP', '', regex=False)
                 harga_str = harga_str.str.split(',').str[0]
                 harga_str = harga_str.str.replace(r'[^0-9]', '', regex=True)
@@ -358,7 +374,7 @@ elif menu == "Dashboard Laporan":
                 df_valid = df_dash[(df_dash['HARGA_NUM'] > 0) & (df_dash['HARGA_NUM'] <= 10000000000)]
                 
                 with col_chart3:
-                    st.write("#### 💰 Rata-Rata Harga per Kategori (Aktual)")
+                    st.write("#### 💰 Rata-Rata Harga per Kategori")
                     if 'KATEGORI' in df_valid.columns:
                         avg_price = df_valid[df_valid['KATEGORI'] != '-'].groupby('KATEGORI')['HARGA_NUM'].mean().sort_values(ascending=False).head(10)
                         if not avg_price.empty:
