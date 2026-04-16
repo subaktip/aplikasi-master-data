@@ -24,11 +24,11 @@ with st.sidebar:
         
     st.write("---")
     
-    # [UPDATE]: Menu disederhanakan hanya menjadi 2 opsi utama
+    # [UPDATE]: Menu Dashboard diaktifkan kembali sesuai request
     menu = option_menu(
         menu_title="", 
-        options=["Pembersihan PO", "Database Vendor"],
-        icons=["magic", "search"], 
+        options=["Pembersihan PO", "Database Vendor", "Dashboard Laporan"],
+        icons=["magic", "search", "bar-chart-line"], 
         default_index=0,
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
@@ -86,7 +86,7 @@ except Exception as e:
     st.error(f"⚠️ Gagal Load Master Data: {e}"); st.stop()
 
 # ==========================================
-# MENU 1: PEMBERSIHAN PO (UPLOAD EXCEL ONLY)
+# MENU 1: PEMBERSIHAN PO
 # ==========================================
 if menu == "Pembersihan PO":
     st.header("Upload & Pembersihan Laporan PO")
@@ -121,7 +121,6 @@ if menu == "Pembersihan PO":
                     val_barang = str(row[col_barang]).strip()
                     is_barang_empty = (val_barang == '' or val_barang.lower() == 'nan' or 'UNNAMED' in val_barang.upper())
                     
-                    # Sapu Baris untuk Vendor
                     if is_barang_empty:
                         for val in row.values:
                             v_str = str(val).strip()
@@ -132,7 +131,6 @@ if menu == "Pembersihan PO":
                                         vendor_saat_ini = v_str
                                         break 
                     
-                    # Tangkap Tanggal
                     if col_tgl_name:
                         t_val = str(row[col_tgl_name]).strip()
                         if t_val and t_val.lower() != 'nan':
@@ -140,7 +138,6 @@ if menu == "Pembersihan PO":
                             if len(t_val) >= 4 and "JUMLAH" not in t_val.upper():
                                 tgl_saat_ini = t_val
                     
-                    # Simpan Item
                     if not is_barang_empty and "JUMLAH" not in val_barang.upper() and "SUBTOTAL" not in val_barang.upper() and val_barang.upper() != "RP":
                         qty_val = row[col_qty_name] if col_qty_name else 0
                         harga_val = row[col_harga_name] if col_harga_name else 0
@@ -261,3 +258,74 @@ elif menu == "Database Vendor":
                 st.warning("Maaf, vendor dengan kata kunci tersebut tidak ditemukan di database.")
         except Exception as e: 
             st.error("Gagal Load Database Vendor. Pastikan tab vendor ada dan GID benar.")
+
+# ==========================================
+# MENU 3: DASHBOARD LAPORAN (DENGAN FITUR BARU)
+# ==========================================
+elif menu == "Dashboard Laporan":
+    st.header("📊 Dashboard Analisa Purchasing")
+    st.write("Visualisasi interaktif dari puluhan ribu Master Data Anda.")
+    
+    if not df_master.empty:
+        col1, col2, col3 = st.columns(3)
+        col1.info(f"📦 **Total Data Barang:** {len(df_master):,} Item")
+        
+        cat_valid = df_master[df_master['KATEGORI'] != '-']['KATEGORI'].nunique()
+        col2.success(f"🗂️ **Total Kategori:** {cat_valid} Kategori")
+        
+        if 'VENDOR' in df_master.columns:
+            ven_valid = df_master[~df_master['VENDOR'].isin(['-', ''])]["VENDOR"].nunique()
+        else:
+            ven_valid = 0
+        col3.warning(f"🏢 **Total Vendor:** {ven_valid} Vendor")
+        
+        st.write("---")
+        
+        # BARIS GRAFIK 1: Kategori & Vendor
+        col_chart1, col_chart2 = st.columns(2)
+        with col_chart1:
+            st.write("#### 📊 Top 10 Kategori Barang")
+            cat_count = df_master[df_master['KATEGORI'] != '-']['KATEGORI'].value_counts().head(10)
+            st.bar_chart(cat_count)
+            
+        with col_chart2:
+            st.write("#### 🏢 Top 10 Vendor Tersering")
+            if 'VENDOR' in df_master.columns:
+                df_ven = df_master[~df_master['VENDOR'].isin(['-', ''])]
+                ven_count = df_ven['VENDOR'].value_counts().head(10)
+                st.bar_chart(ven_count)
+        
+        st.write("---")
+        
+        # BARIS GRAFIK 2: Harga Rata-rata & FITUR BARU (Top 10 Mahal)
+        col_chart3, col_chart4 = st.columns(2)
+        
+        if 'HARGA' in df_master.columns:
+            harga_str = df_master['HARGA'].astype(str).str.upper().str.replace('RP', '', regex=False)
+            harga_str = harga_str.str.split(',').str[0]
+            harga_str = harga_str.str.replace(r'[^0-9]', '', regex=True)
+            
+            df_master['HARGA_NUM'] = pd.to_numeric(harga_str, errors='coerce').fillna(0)
+            df_valid = df_master[(df_master['HARGA_NUM'] > 0) & (df_master['HARGA_NUM'] <= 10000000000)]
+            
+            with col_chart3:
+                st.write("#### 💰 Rata-Rata Harga per Kategori")
+                avg_price = df_valid[df_valid['KATEGORI'] != '-'].groupby('KATEGORI')['HARGA_NUM'].mean().sort_values(ascending=False).head(10)
+                if not avg_price.empty:
+                    st.bar_chart(avg_price)
+                else:
+                    st.info("Belum ada data harga angka yang valid untuk dianalisa.")
+            
+            # [FITUR BARU]: TOP 10 BARANG SULTAN
+            with col_chart4:
+                st.write("#### 💎 Top 10 Barang Paling Mahal")
+                if not df_valid.empty:
+                    top_mahal = df_valid[['NAMA BAKU', 'HARGA_NUM']].dropna(subset=['NAMA BAKU'])
+                    top_mahal = top_mahal[top_mahal['NAMA BAKU'] != '⚠️ CEK MANUAL']
+                    top_mahal = top_mahal.sort_values(by='HARGA_NUM', ascending=False).drop_duplicates(subset=['NAMA BAKU']).head(10)
+                    top_mahal = top_mahal.set_index('NAMA BAKU')
+                    st.bar_chart(top_mahal)
+                else:
+                    st.info("Belum ada data harga yang valid.")
+    else:
+        st.warning("Data Master masih kosong atau sedang dimuat.")
