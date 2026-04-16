@@ -108,17 +108,22 @@ def generate_new_sku(kat_full, det_full):
     return f"{prefix}-{c_kat}-{c_det}-{next_val:03d}"
 
 # ==========================================
-# MENU 1: PEMBERSIHAN PO
+# MENU 1: PEMBERSIHAN PO (AUTO-DETECT UNIT KERJA)
 # ==========================================
 if menu == "Pembersihan PO":
     st.header("Upload & Pembersihan Laporan PO")
     
-    pilihan_unit = ["- Pilih Unit Kerja -", "PBI CPR", "PBI PML", "PIH", "PIH BHN PENOLONG", "RA", "PGP"]
-    unit_kerja = st.selectbox("🏢 Pilih Unit Kerja:", pilihan_unit)
+    # [UPDATE]: Tambah opsi Auto-Detect dan Plant Baru
+    pilihan_unit = [
+        "- Auto-Detect dari Keterangan -", 
+        "PBI CPR", "PBI PML", "PBI MAUK", "PP CUP", 
+        "PIH", "PIH BHN PENOLONG", "RA", "PGP"
+    ]
+    unit_kerja = st.selectbox("🏢 Pilih Unit Kerja (Pilih Auto-Detect agar robot membaca alamat):", pilihan_unit)
     
     file_po = st.file_uploader("Upload Excel Laporan (.xlsx/.xls)", type=["xlsx", "xls"])
     
-    if file_po and unit_kerja != "- Pilih Unit Kerja -":
+    if file_po:
         try:
             raw_excel = pd.read_excel(file_po, header=None)
             header_idx = -1
@@ -138,6 +143,9 @@ if menu == "Pembersihan PO":
                 col_harga = next((c for c in df_po.columns if 'HARGA' in c), None)
                 col_tgl = next((c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c or c.replace('.', '').strip() in ['T', 'DATE']), None)
                 
+                # [FITUR BARU]: Cari Kolom Keterangan
+                col_ket = next((c for c in df_po.columns if 'KETERANGAN' in c or 'KET' in c), None)
+                
                 for i, row in df_po.iterrows():
                     val_barang = str(row[col_barang]).strip()
                     is_empty = (val_barang == '' or val_barang.lower() == 'nan' or 'UNNAMED' in val_barang.upper())
@@ -155,16 +163,32 @@ if menu == "Pembersihan PO":
                     
                     po_val = str(row[col_po]).strip() if col_po else "-"
                     
+                    # [LOGIKA SAKTI]: Deteksi Unit Kerja dari Keterangan
+                    ket_val = str(row[col_ket]).strip().upper() if col_ket else ""
+                    row_unit = unit_kerja
+                    
+                    if unit_kerja == "- Auto-Detect dari Keterangan -":
+                        if "KEAMANAN" in ket_val:
+                            row_unit = "PBI CPR"
+                        elif "ARYA KEMUNING" in ket_val:
+                            row_unit = "PBI MAUK"
+                        elif "AGUS HALIM" in ket_val:
+                            row_unit = "PP CUP"
+                        elif "PEMALANG" in ket_val:
+                            row_unit = "PBI PML"
+                        else:
+                            row_unit = "BELUM DITENTUKAN" # Kalau alamat kosong/tidak sesuai keyword
+                    
                     if not is_empty and "JUMLAH" not in val_barang.upper() and val_barang.upper() != "RP":
                         final_data.append({
-                            "UNIT KERJA": unit_kerja, "NO PO": po_val, "TANGGAL": tgl_saat_ini, 
+                            "UNIT KERJA": row_unit, "NO PO": po_val, "TANGGAL": tgl_saat_ini, 
                             "VENDOR": vendor_saat_ini, "ITEM_KOTOR": val_barang, 
                             "QTY": row[col_qty] if col_qty else 0, "HARGA": row[col_harga] if col_harga else 0
                         })
                 
                 df_clean = pd.DataFrame(final_data)
                 
-                if st.button("🚀 Proses Pembersihan & Sinkronisasi SKU", type="primary", use_container_width=True):
+                if st.button("🚀 Proses Pembersihan & Auto-Detect", type="primary", use_container_width=True):
                     hasil_rows = []
                     for _, r in df_clean.iterrows():
                         match = process.extractOne(str(r['ITEM_KOTOR']), list_lookup, scorer=fuzz.token_set_ratio)
@@ -241,31 +265,17 @@ if menu == "Pembersihan PO":
                     
                     if st.button("🔥 Daftarkan & Update PO", type="primary"):
                         try:
-                            # 1. Ambil data asli barang tersebut dari PO saat ini
                             row_data = st.session_state['hasil_po'][st.session_state['hasil_po']['NAMA ITEM'] == item_select].iloc[0]
-                            
                             client = get_gspread_client()
-                            sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0) # Sheet 1
+                            sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
                             
-                            # 2. INJEKSI KE SHEET 1 (MASTER DATA)
-                            # Susunan: NAMA ITEM, NAMA BAKU, KATEGORI, DETAIL KATEGORI, NOMOR SKU, KET, SATUAN, HARGA, QTY, VENDOR, GRUP, TANGGAL2
                             new_master_row = [
-                                item_select,                    # NAMA ITEM
-                                item_select,                    # NAMA BAKU
-                                kat_sel,                        # KATEGORI (Termasuk yg baru)
-                                det_sel,                        # DETAIL KATEGORI (Termasuk yg baru)
-                                sku_baru,                       # NOMOR SKU
-                                "",                             # KET
-                                "PCS",                          # SATUAN (Default)
-                                row_data.get('HARGA', 0),       # HARGA dari PO
-                                row_data.get('QTY', 0),         # QTY dari PO
-                                row_data.get('VENDOR', '-'),    # VENDOR dari PO
-                                row_data.get('UNIT KERJA', '-'),# GRUP dari PO
-                                row_data.get('TANGGAL', '-')    # TANGGAL dari PO
+                                item_select, item_select, kat_sel, det_sel, sku_baru, "", "PCS",
+                                row_data.get('HARGA', 0), row_data.get('QTY', 0), row_data.get('VENDOR', '-'),
+                                row_data.get('UNIT KERJA', '-'), row_data.get('TANGGAL', '-')
                             ]
                             sheet_master.append_row(new_master_row)
                             
-                            # 3. UPDATE TABEL PO DI LAYAR (Untuk dikirim ke Sheet 4)
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'NAMA BAKU'] = item_select
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'SKU'] = sku_baru
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'KATEGORI'] = kat_sel
@@ -353,7 +363,7 @@ elif menu == "Dashboard Laporan":
                     st.dataframe(rekap_u, use_container_width=True)
                 with c_b:
                     st.write("#### 🏆 Top 10 Item (by PO)")
-                    df_valid = df_d[~df_d[c_baku].str.contains('CEK MANUAL', na=False)]
+                    df_valid = df_d[~df_d[c_baku].str.contains('CEK MANUAL|BARANG BARU', na=False)]
                     if not df_valid.empty:
                         top_i = df_valid.groupby(c_baku)[c_po].nunique().sort_values(ascending=False).head(10)
                         st.bar_chart(top_i)
