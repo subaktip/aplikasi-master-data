@@ -61,9 +61,13 @@ def format_rupiah(angka):
     try: return f"Rp {int(angka):,}".replace(',', '.')
     except: return "Rp 0"
 
+# [UPDATE SAKTI]: Memaksa semua kode yang diambil menjadi 3 Digit (ZFILL)
 def extract_code(text):
-    try: return text.split('(')[1].split(')')[0].strip()
-    except: return "000"
+    try: 
+        kode = text.split('(')[1].split(')')[0].strip()
+        return kode.zfill(3) # Ini kuncinya! (1 -> 001, 15 -> 015)
+    except: 
+        return "000"
 
 # --- PERSIAPAN KAMUS PINTAR ---
 try:
@@ -74,8 +78,7 @@ try:
     if 'KATEGORI' in df_master.columns: df_master['KATEGORI'] = df_master['KATEGORI'].ffill().astype(str).str.strip().str.upper()
     if 'DETAIL KATEGORI' in df_master.columns: df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill().astype(str).str.strip().str.upper()
     
-    if 'KATA KUNCI' not in df_master.columns:
-        df_master['KATA KUNCI'] = ""
+    if 'KATA KUNCI' not in df_master.columns: df_master['KATA KUNCI'] = ""
     df_master['KATA KUNCI'] = df_master['KATA KUNCI'].fillna("").astype(str)
     
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI']
@@ -87,11 +90,13 @@ try:
 except Exception as e:
     st.error(f"⚠️ Gagal Load Master Data: {e}"); st.stop()
 
-# --- FUNGSI AUTO SKU GENERATOR ---
-def generate_new_sku(kat_full, det_full):
+# --- FUNGSI AUTO SKU GENERATOR (Strict 3-3-3-3) ---
+def generate_new_sku(prefix_val, kat_full, det_full):
+    prefix = prefix_val.strip()
+    if len(prefix) != 3: prefix = prefix.zfill(3) # Pastikan prefix juga 3 digit
+    
     c_kat = extract_code(kat_full)
     c_det = extract_code(det_full)
-    prefix = "001"
     
     pattern = f"{prefix}-{c_kat}-{c_det}-"
     df_match = df_master[df_master['NOMOR SKU'].astype(str).str.contains(pattern, na=False)]
@@ -135,11 +140,7 @@ if menu == "Pembersihan PO":
                 df_po = pd.read_excel(file_po, skiprows=header_idx)
                 df_po.columns = df_po.columns.astype(str).str.strip().str.upper()
                 
-                # [UPDATE MEMORY]: Robot disiapkan dengan ingatan kosong
-                vendor_saat_ini = "-"
-                tgl_saat_ini = "-"
-                po_saat_ini = "-"
-                unit_saat_ini = "BELUM DITENTUKAN"
+                vendor_saat_ini, tgl_saat_ini, po_saat_ini, unit_saat_ini = "-", "-", "-", "BELUM DITENTUKAN"
                 final_data = []
                 
                 col_po = next((c for c in df_po.columns if 'BUKTI' in c or 'PO' in c), df_po.columns[0])
@@ -153,7 +154,6 @@ if menu == "Pembersihan PO":
                     val_barang = str(row[col_barang]).strip()
                     is_empty = (val_barang == '' or val_barang.lower() == 'nan' or 'UNNAMED' in val_barang.upper())
                     
-                    # 1. Ingat Vendor
                     if is_empty:
                         for val in row.values:
                             v_str = str(val).strip()
@@ -161,31 +161,21 @@ if menu == "Pembersihan PO":
                                 if len(v_str) > 2 and not v_str.replace('.', '').replace(',', '').isdigit():
                                     vendor_saat_ini = v_str; break 
                     
-                    # 2. Ingat Tanggal
                     if col_tgl and not pd.isna(row[col_tgl]):
                         t_val = str(row[col_tgl]).strip()
-                        if len(t_val) >= 4 and "JUMLAH" not in t_val.upper(): 
-                            tgl_saat_ini = t_val.split()[0]
+                        if len(t_val) >= 4 and "JUMLAH" not in t_val.upper(): tgl_saat_ini = t_val.split()[0]
                     
-                    # 3. Ingat PO (Filter wajib mengandung angka)
                     curr_po = str(row[col_po]).strip() if col_po else ""
-                    if curr_po and curr_po.lower() != 'nan':
-                        if any(char.isdigit() for char in curr_po):
-                            po_saat_ini = curr_po
+                    if curr_po and curr_po.lower() != 'nan' and any(char.isdigit() for char in curr_po):
+                        po_saat_ini = curr_po
                             
-                    # 4. Ingat Unit Kerja dari Keterangan
                     ket_val = str(row[col_ket]).strip().upper() if col_ket else ""
                     if ket_val and ket_val.lower() != 'nan':
-                        if "KEAMANAN" in ket_val:
-                            unit_saat_ini = "PBI CPR"
-                        elif "ARYA KEMUNING" in ket_val:
-                            unit_saat_ini = "PBI MAUK"
-                        elif "AGUS HALIM" in ket_val:
-                            unit_saat_ini = "PP CUP"
-                        elif "PEMALANG" in ket_val:
-                            unit_saat_ini = "PBI PML"
+                        if "KEAMANAN" in ket_val: unit_saat_ini = "PBI CPR"
+                        elif "ARYA KEMUNING" in ket_val: unit_saat_ini = "PBI MAUK"
+                        elif "AGUS HALIM" in ket_val: unit_saat_ini = "PP CUP"
+                        elif "PEMALANG" in ket_val: unit_saat_ini = "PBI PML"
                             
-                    # Tentukan Unit Kerja Final
                     row_unit = unit_saat_ini if unit_kerja == "- Auto-Detect dari Keterangan -" else unit_kerja
                     
                     if not is_empty and "JUMLAH" not in val_barang.upper() and val_barang.upper() != "RP":
@@ -235,19 +225,30 @@ if menu == "Pembersihan PO":
                 except Exception as e: st.error(e)
 
         with t2:
-            st.write("### 🤖 Asisten Registrasi Barang Baru")
+            st.write("### 🤖 Asisten Registrasi Barang Baru (Format 12 Digit)")
             df_curr = st.session_state['hasil_po']
             new_items = df_curr[df_curr['NAMA BAKU'] == "⚠️ BARANG BARU"]['NAMA ITEM'].unique()
             
             if len(new_items) > 0:
                 item_select = st.selectbox("Pilih barang yang ingin didaftarkan SKU-nya:", new_items)
-                c_a, c_b = st.columns(2)
+                
+                # [UPDATE]: Ditambah 1 Kolom untuk Tipe Sparepart (Prefix)
+                c_p, c_a, c_b = st.columns(3)
+                
+                with c_p:
+                    prefix_list = ["001 - Sparepart Mesin", "002 - Supporting Material", "003 - Bahan Baku", "004 - ATK & Umum", "005 - IT / Komputer", "✨ + Tambah Kode Baru..."]
+                    pref_dropdown = st.selectbox("Tipe Barang (Blok 1):", prefix_list)
+                    if pref_dropdown == "✨ + Tambah Kode Baru...":
+                        prefix_sel = st.text_input("Ketik Kode (3 Angka):", max_chars=3, placeholder="Cth: 006")
+                    else:
+                        prefix_sel = pref_dropdown[:3] # Hanya ambil 3 angka pertamanya
+                
                 with c_a:
                     kat_list = sorted([k for k in df_master['KATEGORI'].unique() if k and k != '-'])
                     kat_list.append("✨ + Tambah Kategori Baru...")
-                    kat_dropdown = st.selectbox("Kategori:", kat_list)
+                    kat_dropdown = st.selectbox("Kategori (Blok 2):", kat_list)
                     if kat_dropdown == "✨ + Tambah Kategori Baru...":
-                        kat_sel = st.text_input("Ketik Kategori Baru (Format: NAMA (KODE)):", placeholder="Contoh: ATK (050)")
+                        kat_sel = st.text_input("Kategori Baru (Format: NAMA (KODE)):", placeholder="Cth: ATK (050)")
                     else: kat_sel = kat_dropdown
 
                 with c_b:
@@ -255,14 +256,15 @@ if menu == "Pembersihan PO":
                         det_list = sorted([d for d in df_master[df_master['KATEGORI'] == kat_dropdown]['DETAIL KATEGORI'].unique() if d and d != '-'])
                     else: det_list = []
                     det_list.append("✨ + Tambah Detail Baru...")
-                    det_dropdown = st.selectbox("Detail Kategori:", det_list)
+                    det_dropdown = st.selectbox("Detail Kategori (Blok 3):", det_list)
                     if det_dropdown == "✨ + Tambah Detail Baru...":
-                        det_sel = st.text_input("Ketik Detail Baru (Format: NAMA (KODE)):", placeholder="Contoh: KERTAS (001)")
+                        det_sel = st.text_input("Detail Baru (Format: NAMA (KODE)):", placeholder="Cth: KERTAS (001)")
                     else: det_sel = det_dropdown
                 
-                if kat_sel and det_sel:
-                    sku_baru = generate_new_sku(kat_sel, det_sel)
+                if prefix_sel and kat_sel and det_sel:
+                    sku_baru = generate_new_sku(prefix_sel, kat_sel, det_sel)
                     st.info(f"**Saran SKU Baru:** `{sku_baru}`")
+                    
                     if st.button("🔥 Daftarkan & Update PO", type="primary"):
                         try:
                             row_data = st.session_state['hasil_po'][st.session_state['hasil_po']['NAMA ITEM'] == item_select].iloc[0]
@@ -280,7 +282,7 @@ if menu == "Pembersihan PO":
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'KATEGORI'] = kat_sel
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'DETAIL KATEGORI'] = det_sel
                             
-                            st.success(f"Mantap Bosku! Barang {item_select} masuk ke Master Data & siap masuk ke Dashboard Sheet 4!")
+                            st.success(f"Mantap! Barang {item_select} terdaftar dengan SKU {sku_baru}")
                             time.sleep(1); st.rerun()
                         except Exception as e: st.error(f"Gagal Registrasi: {e}")
             else: st.success("Semua barang di laporan ini sudah terdaftar. Mantap!")
