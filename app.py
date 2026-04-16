@@ -65,7 +65,7 @@ def extract_code(text):
     try: return text.split('(')[1].split(')')[0].strip()
     except: return "000"
 
-# --- PERSIAPAN KAMUS PINTAR ---
+# --- PERSIAPAN KAMUS PINTAR (BUG FIXED!) ---
 try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
@@ -74,8 +74,15 @@ try:
     if 'KATEGORI' in df_master.columns: df_master['KATEGORI'] = df_master['KATEGORI'].ffill().astype(str).str.strip().str.upper()
     if 'DETAIL KATEGORI' in df_master.columns: df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill().astype(str).str.strip().str.upper()
     
-    df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master.get('KATA KUNCI', "").fillna("").astype(str)
-    master_map = df_master.drop_duplicates(subset=['NAMA BAKU'], keep='last').set_index('NAMA BAKU').to_dict('index')
+    # [PERBAIKAN BUG]: Mengamankan kolom KATA KUNCI agar tidak error "str object"
+    if 'KATA KUNCI' not in df_master.columns:
+        df_master['KATA KUNCI'] = ""
+    df_master['KATA KUNCI'] = df_master['KATA KUNCI'].fillna("").astype(str)
+    
+    df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI']
+    df_master_unique = df_master.drop_duplicates(subset=['NAMA BAKU'], keep='last')
+    master_map = df_master_unique.set_index('NAMA BAKU').to_dict('index')
+    
     list_lookup = df_master['Lookup'].tolist()
     lookup_to_baku = dict(zip(df_master['Lookup'], df_master['NAMA BAKU']))
 except Exception as e:
@@ -91,7 +98,6 @@ def generate_new_sku(kat_full, det_full):
     df_match = df_master[df_master['NOMOR SKU'].astype(str).str.contains(pattern, na=False)]
     
     if not df_match.empty:
-        # Ambil 3 angka terakhir
         last_nums = []
         for s in df_match['NOMOR SKU'].astype(str):
             try: last_nums.append(int(s.split('-')[-1]))
@@ -115,7 +121,6 @@ if menu == "Pembersihan PO":
     
     if file_po and unit_kerja != "- Pilih Unit Kerja -":
         try:
-            # PROSES BACA EXCEL CERDAS
             raw_excel = pd.read_excel(file_po, header=None)
             header_idx = -1
             for i, row in raw_excel.iterrows():
@@ -182,7 +187,6 @@ if menu == "Pembersihan PO":
 
         except Exception as e: st.error(f"Error: {e}")
 
-    # TAMPILAN TAB HASIL
     if 'hasil_po' in st.session_state:
         t1, t2, t3 = st.tabs(["📄 Hasil Pembersihan", "🆕 Registrasi SKU Otomatis", "📊 Rekap"])
         
@@ -222,10 +226,8 @@ if menu == "Pembersihan PO":
                         client = get_gspread_client()
                         sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
                         
-                        # Injek ke Master Data (Sheet 1)
                         sheet_master.append_row([item_select, item_select, "", kat_sel, det_sel, sku_baru, "PCS"])
                         
-                        # Update tabel PO yang sedang aktif di session
                         st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'NAMA BAKU'] = item_select
                         st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'SKU'] = sku_baru
                         st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'KATEGORI'] = kat_sel
@@ -241,7 +243,7 @@ if menu == "Pembersihan PO":
             st.write("Lakukan pengiriman data di Tab 1 untuk melihat rekapitulasi.")
 
 # ==========================================
-# MENU LAINNYA (DIPERTAHANKAN)
+# MENU 2: PENCARIAN BARANG
 # ==========================================
 elif menu == "Pencarian Barang":
     st.header("🔍 Kamus & Histori Barang")
@@ -259,6 +261,9 @@ elif menu == "Pencarian Barang":
                 })
         st.dataframe(pd.DataFrame(res_list), use_container_width=True)
 
+# ==========================================
+# MENU 3: DATABASE VENDOR
+# ==========================================
 elif menu == "Database Vendor":
     st.header("Database Pencarian Vendor")
     keyword = st.text_input("Cari Supplier:")
@@ -271,6 +276,9 @@ elif menu == "Database Vendor":
                 st.write(f"**PIC:** {v.get('PIC', '-')} | **Kontak:** {v.get('KONTAK', '-')}")
                 st.write(f"**Alamat:** {v.get('ALAMAT', '-')}")
 
+# ==========================================
+# MENU 4: DASHBOARD LAPORAN
+# ==========================================
 elif menu == "Dashboard Laporan":
     st.header("📊 Executive Dashboard Purchasing")
     try:
@@ -282,12 +290,12 @@ elif menu == "Dashboard Laporan":
             df_d = pd.DataFrame(data_dash[1:], columns=data_dash[0])
             df_d.columns = df_d.columns.str.strip().str.upper()
             
-            # Deteksi Kolom Dinamis
             c_po = next((c for c in df_d.columns if 'PO' in c or 'BUKTI' in c), None)
             c_unit = next((c for c in df_d.columns if 'UNIT' in c or 'GRUP' in c), None)
             c_harga = next((c for c in df_d.columns if 'HARGA' in c), None)
+            c_baku = next((c for c in df_d.columns if 'BAKU' in c), None)
             
-            if c_po and c_unit and c_harga:
+            if c_po and c_unit and c_harga and c_baku:
                 h_str = df_d[c_harga].astype(str).str.upper().str.replace('RP', '', regex=False).str.split(',').str[0].str.replace(r'[^0-9]', '', regex=True)
                 df_d['H_NUM'] = pd.to_numeric(h_str, errors='coerce').fillna(0)
                 df_d['Q_NUM'] = pd.to_numeric(df_d['QTY'], errors='coerce').fillna(0)
@@ -295,7 +303,7 @@ elif menu == "Dashboard Laporan":
                 
                 col1, col2, col3 = st.columns(3)
                 col1.metric("💰 Total Belanja", format_rupiah(df_d['TOTAL'].sum()))
-                col2.metric("📄 Total PO", df_d[c_po].nunique())
+                col2.metric("📄 Total PO", df_d[c_po].replace('', pd.NA).dropna().nunique())
                 col3.metric("🏢 Unit Aktif", df_d[c_unit].nunique())
                 
                 st.write("---")
@@ -307,7 +315,9 @@ elif menu == "Dashboard Laporan":
                     st.dataframe(rekap_u, use_container_width=True)
                 with c_b:
                     st.write("#### 🏆 Top 10 Item (by PO)")
-                    top_i = df_d[df_d['NAMA BAKU'] != ""].groupby('NAMA BAKU')[c_po].nunique().sort_values(ascending=False).head(10)
-                    st.bar_chart(top_i)
+                    df_valid = df_d[~df_d[c_baku].str.contains('CEK MANUAL', na=False)]
+                    if not df_valid.empty:
+                        top_i = df_valid.groupby(c_baku)[c_po].nunique().sort_values(ascending=False).head(10)
+                        st.bar_chart(top_i)
         else: st.warning("Database transaksi masih kosong.")
     except Exception as e: st.error(f"Dashboard Error: {e}")
