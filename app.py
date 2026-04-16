@@ -65,7 +65,7 @@ def extract_code(text):
     try: return text.split('(')[1].split(')')[0].strip()
     except: return "000"
 
-# --- PERSIAPAN KAMUS PINTAR (BUG FIXED!) ---
+# --- PERSIAPAN KAMUS PINTAR ---
 try:
     df_master = load_data(GID_MASTER)
     df_master.columns = df_master.columns.str.strip().str.upper()
@@ -74,7 +74,6 @@ try:
     if 'KATEGORI' in df_master.columns: df_master['KATEGORI'] = df_master['KATEGORI'].ffill().astype(str).str.strip().str.upper()
     if 'DETAIL KATEGORI' in df_master.columns: df_master['DETAIL KATEGORI'] = df_master['DETAIL KATEGORI'].ffill().astype(str).str.strip().str.upper()
     
-    # [PERBAIKAN BUG]: Mengamankan kolom KATA KUNCI agar tidak error "str object"
     if 'KATA KUNCI' not in df_master.columns:
         df_master['KATA KUNCI'] = ""
     df_master['KATA KUNCI'] = df_master['KATA KUNCI'].fillna("").astype(str)
@@ -109,7 +108,7 @@ def generate_new_sku(kat_full, det_full):
     return f"{prefix}-{c_kat}-{c_det}-{next_val:03d}"
 
 # ==========================================
-# MENU 1: PEMBERSIHAN PO + AUTO SKU COMBO
+# MENU 1: PEMBERSIHAN PO
 # ==========================================
 if menu == "Pembersihan PO":
     st.header("Upload & Pembersihan Laporan PO")
@@ -211,31 +210,52 @@ if menu == "Pembersihan PO":
                 item_select = st.selectbox("Pilih barang yang ingin didaftarkan SKU-nya:", new_items)
                 
                 c_a, c_b = st.columns(2)
+                
+                # --- UPDATE SAKTI: TAMBAH KATEGORI BARU ---
                 with c_a:
-                    kat_list = sorted(df_master['KATEGORI'].unique())
-                    kat_sel = st.selectbox("Kategori:", kat_list)
+                    kat_list = sorted([k for k in df_master['KATEGORI'].unique() if k and k != '-'])
+                    kat_list.append("✨ + Tambah Kategori Baru...")
+                    kat_dropdown = st.selectbox("Kategori:", kat_list)
+                    
+                    if kat_dropdown == "✨ + Tambah Kategori Baru...":
+                        kat_sel = st.text_input("Ketik Kategori Baru (Format: NAMA (KODE)):", placeholder="Contoh: ATK (050)")
+                    else:
+                        kat_sel = kat_dropdown
+
                 with c_b:
-                    det_list = sorted(df_master[df_master['KATEGORI'] == kat_sel]['DETAIL KATEGORI'].unique())
-                    det_sel = st.selectbox("Detail Kategori:", det_list)
+                    if kat_dropdown != "✨ + Tambah Kategori Baru...":
+                        det_list = sorted([d for d in df_master[df_master['KATEGORI'] == kat_dropdown]['DETAIL KATEGORI'].unique() if d and d != '-'])
+                    else:
+                        det_list = []
+                        
+                    det_list.append("✨ + Tambah Detail Baru...")
+                    det_dropdown = st.selectbox("Detail Kategori:", det_list)
+                    
+                    if det_dropdown == "✨ + Tambah Detail Baru...":
+                        det_sel = st.text_input("Ketik Detail Baru (Format: NAMA (KODE)):", placeholder="Contoh: KERTAS (001)")
+                    else:
+                        det_sel = det_dropdown
                 
-                sku_baru = generate_new_sku(kat_sel, det_sel)
-                st.info(f"**Saran SKU Baru:** `{sku_baru}`")
-                
-                if st.button("🔥 Daftarkan & Update PO", type="primary"):
-                    try:
-                        client = get_gspread_client()
-                        sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
-                        
-                        sheet_master.append_row([item_select, item_select, "", kat_sel, det_sel, sku_baru, "PCS"])
-                        
-                        st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'NAMA BAKU'] = item_select
-                        st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'SKU'] = sku_baru
-                        st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'KATEGORI'] = kat_sel
-                        st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'DETAIL KATEGORI'] = det_sel
-                        
-                        st.success(f"Barang {item_select} resmi terdaftar dengan SKU {sku_baru}!")
-                        time.sleep(1); st.rerun()
-                    except Exception as e: st.error(e)
+                # Hanya jalankan SKU kalau kolom tidak kosong
+                if kat_sel and det_sel:
+                    sku_baru = generate_new_sku(kat_sel, det_sel)
+                    st.info(f"**Saran SKU Baru:** `{sku_baru}`")
+                    
+                    if st.button("🔥 Daftarkan & Update PO", type="primary"):
+                        try:
+                            client = get_gspread_client()
+                            sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
+                            
+                            sheet_master.append_row([item_select, item_select, "", kat_sel, det_sel, sku_baru, "PCS"])
+                            
+                            st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'NAMA BAKU'] = item_select
+                            st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'SKU'] = sku_baru
+                            st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'KATEGORI'] = kat_sel
+                            st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'DETAIL KATEGORI'] = det_sel
+                            
+                            st.success(f"Barang {item_select} resmi terdaftar dengan SKU {sku_baru}!")
+                            time.sleep(1); st.rerun()
+                        except Exception as e: st.error(e)
             else:
                 st.success("Semua barang di laporan ini sudah terdaftar. Mantap!")
 
