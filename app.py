@@ -24,7 +24,6 @@ with st.sidebar:
         
     st.write("---")
     
-    # [UPDATE]: Menambah Menu "Pencarian Barang"
     menu = option_menu(
         menu_title="", 
         options=["Pembersihan PO", "Pencarian Barang", "Database Vendor", "Dashboard Laporan"],
@@ -80,7 +79,6 @@ try:
     
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
     
-    # [UPDATE]: keep='last' memastikan data yg diambil adalah riwayat PO/Harga yang paling baru
     df_master_unique = df_master.drop_duplicates(subset=['NAMA BAKU'], keep='last')
     master_map = df_master_unique.set_index('NAMA BAKU').to_dict('index')
     
@@ -229,7 +227,7 @@ if menu == "Pembersihan PO":
                 st.warning("Gagal memproses rekap. Pastikan ada angka di QTY dan Harga.")
 
 # ==========================================
-# MENU 2: PENCARIAN BARANG (FITUR BARU!)
+# MENU 2: PENCARIAN BARANG (UPDATE SKU)
 # ==========================================
 elif menu == "Pencarian Barang":
     st.header("🔍 Kamus & Histori Barang")
@@ -238,20 +236,21 @@ elif menu == "Pencarian Barang":
     kata_cari = st.text_input("Ketik Nama Barang / Singkatan (Misal: Accu, Timbangan, Besi):")
     
     if kata_cari:
-        # Mencari kemiripan dari input user ke database
         hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
         data_tabel = []
         
         for match in hasil_cari:
             skor = round(match[1], 1)
-            if skor >= 40: # Hanya tampilkan yang akurasinya di atas 40%
+            if skor >= 40: 
                 kunci = match[0]
                 baku = lookup_to_baku[kunci]
-                info = master_map.get(baku, {}) # Info ini dijamin data paling baru (karena keep='last')
+                info = master_map.get(baku, {}) 
                 
+                # [UPDATE]: Kolom SKU sudah dimasukkan ke sini!
                 data_tabel.append({
                     "Akurasi": f"{skor}%",
                     "Nama Baku (Standar)": baku,
+                    "SKU": info.get('NOMOR SKU', '-'),
                     "Kategori": info.get('KATEGORI', '-'),
                     "Detail": info.get('DETAIL KATEGORI', '-'),
                     "Satuan": info.get('SATUAN', '-'),
