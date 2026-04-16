@@ -211,7 +211,6 @@ if menu == "Pembersihan PO":
                 
                 c_a, c_b = st.columns(2)
                 
-                # --- UPDATE SAKTI: TAMBAH KATEGORI BARU ---
                 with c_a:
                     kat_list = sorted([k for k in df_master['KATEGORI'].unique() if k and k != '-'])
                     kat_list.append("✨ + Tambah Kategori Baru...")
@@ -236,26 +235,45 @@ if menu == "Pembersihan PO":
                     else:
                         det_sel = det_dropdown
                 
-                # Hanya jalankan SKU kalau kolom tidak kosong
                 if kat_sel and det_sel:
                     sku_baru = generate_new_sku(kat_sel, det_sel)
                     st.info(f"**Saran SKU Baru:** `{sku_baru}`")
                     
                     if st.button("🔥 Daftarkan & Update PO", type="primary"):
                         try:
+                            # 1. Ambil data asli barang tersebut dari PO saat ini
+                            row_data = st.session_state['hasil_po'][st.session_state['hasil_po']['NAMA ITEM'] == item_select].iloc[0]
+                            
                             client = get_gspread_client()
-                            sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
+                            sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0) # Sheet 1
                             
-                            sheet_master.append_row([item_select, item_select, "", kat_sel, det_sel, sku_baru, "PCS"])
+                            # 2. INJEKSI KE SHEET 1 (MASTER DATA)
+                            # Susunan: NAMA ITEM, NAMA BAKU, KATEGORI, DETAIL KATEGORI, NOMOR SKU, KET, SATUAN, HARGA, QTY, VENDOR, GRUP, TANGGAL2
+                            new_master_row = [
+                                item_select,                    # NAMA ITEM
+                                item_select,                    # NAMA BAKU
+                                kat_sel,                        # KATEGORI (Termasuk yg baru)
+                                det_sel,                        # DETAIL KATEGORI (Termasuk yg baru)
+                                sku_baru,                       # NOMOR SKU
+                                "",                             # KET
+                                "PCS",                          # SATUAN (Default)
+                                row_data.get('HARGA', 0),       # HARGA dari PO
+                                row_data.get('QTY', 0),         # QTY dari PO
+                                row_data.get('VENDOR', '-'),    # VENDOR dari PO
+                                row_data.get('UNIT KERJA', '-'),# GRUP dari PO
+                                row_data.get('TANGGAL', '-')    # TANGGAL dari PO
+                            ]
+                            sheet_master.append_row(new_master_row)
                             
+                            # 3. UPDATE TABEL PO DI LAYAR (Untuk dikirim ke Sheet 4)
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'NAMA BAKU'] = item_select
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'SKU'] = sku_baru
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'KATEGORI'] = kat_sel
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'DETAIL KATEGORI'] = det_sel
                             
-                            st.success(f"Barang {item_select} resmi terdaftar dengan SKU {sku_baru}!")
+                            st.success(f"Mantap Bosku! Barang {item_select} masuk ke Master Data & siap masuk ke Dashboard Sheet 4!")
                             time.sleep(1); st.rerun()
-                        except Exception as e: st.error(e)
+                        except Exception as e: st.error(f"Gagal Registrasi: {e}")
             else:
                 st.success("Semua barang di laporan ini sudah terdaftar. Mantap!")
 
