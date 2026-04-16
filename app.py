@@ -24,11 +24,11 @@ with st.sidebar:
         
     st.write("---")
     
-    # [UPDATE]: Menu Dashboard diaktifkan kembali sesuai request
+    # [UPDATE]: Menambah Menu "Pencarian Barang"
     menu = option_menu(
         menu_title="", 
-        options=["Pembersihan PO", "Database Vendor", "Dashboard Laporan"],
-        icons=["magic", "search", "bar-chart-line"], 
+        options=["Pembersihan PO", "Pencarian Barang", "Database Vendor", "Dashboard Laporan"],
+        icons=["magic", "search", "shop", "bar-chart-line"], 
         default_index=0,
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
@@ -79,7 +79,11 @@ try:
     df_master['KATA KUNCI'] = kata_kunci.fillna("")
     
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
-    master_map = df_master.drop_duplicates(subset=['NAMA BAKU']).set_index('NAMA BAKU').to_dict('index')
+    
+    # [UPDATE]: keep='last' memastikan data yg diambil adalah riwayat PO/Harga yang paling baru
+    df_master_unique = df_master.drop_duplicates(subset=['NAMA BAKU'], keep='last')
+    master_map = df_master_unique.set_index('NAMA BAKU').to_dict('index')
+    
     list_lookup = df_master['Lookup'].tolist()
     lookup_to_baku = dict(zip(df_master['Lookup'], df_master['NAMA BAKU']))
 except Exception as e:
@@ -225,7 +229,45 @@ if menu == "Pembersihan PO":
                 st.warning("Gagal memproses rekap. Pastikan ada angka di QTY dan Harga.")
 
 # ==========================================
-# MENU 2: DATABASE VENDOR
+# MENU 2: PENCARIAN BARANG (FITUR BARU!)
+# ==========================================
+elif menu == "Pencarian Barang":
+    st.header("🔍 Kamus & Histori Barang")
+    st.write("Ketik nama barang acak dari lapangan. Sistem akan menampilkan standar nama, riwayat harga, dan vendor terakhir.")
+    
+    kata_cari = st.text_input("Ketik Nama Barang / Singkatan (Misal: Accu, Timbangan, Besi):")
+    
+    if kata_cari:
+        # Mencari kemiripan dari input user ke database
+        hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
+        data_tabel = []
+        
+        for match in hasil_cari:
+            skor = round(match[1], 1)
+            if skor >= 40: # Hanya tampilkan yang akurasinya di atas 40%
+                kunci = match[0]
+                baku = lookup_to_baku[kunci]
+                info = master_map.get(baku, {}) # Info ini dijamin data paling baru (karena keep='last')
+                
+                data_tabel.append({
+                    "Akurasi": f"{skor}%",
+                    "Nama Baku (Standar)": baku,
+                    "Kategori": info.get('KATEGORI', '-'),
+                    "Detail": info.get('DETAIL KATEGORI', '-'),
+                    "Satuan": info.get('SATUAN', '-'),
+                    "Harga Terakhir": str(info.get('HARGA', '-')),
+                    "Vendor Terakhir": info.get('VENDOR', '-'),
+                    "Tgl Pembelian": str(info.get('TANGGAL', '-'))
+                })
+                
+        if data_tabel:
+            df_tampil = pd.DataFrame(data_tabel)
+            st.dataframe(df_tampil, use_container_width=True)
+        else:
+            st.warning("⚠️ Tidak ada barang yang mirip di database. Coba kata kunci lain.")
+
+# ==========================================
+# MENU 3: DATABASE VENDOR
 # ==========================================
 elif menu == "Database Vendor":
     st.header("Database Pencarian Vendor")
@@ -260,7 +302,7 @@ elif menu == "Database Vendor":
             st.error("Gagal Load Database Vendor. Pastikan tab vendor ada dan GID benar.")
 
 # ==========================================
-# MENU 3: DASHBOARD LAPORAN (DENGAN FITUR BARU)
+# MENU 4: DASHBOARD LAPORAN
 # ==========================================
 elif menu == "Dashboard Laporan":
     st.header("📊 Dashboard Analisa Purchasing")
@@ -281,7 +323,6 @@ elif menu == "Dashboard Laporan":
         
         st.write("---")
         
-        # BARIS GRAFIK 1: Kategori & Vendor
         col_chart1, col_chart2 = st.columns(2)
         with col_chart1:
             st.write("#### 📊 Top 10 Kategori Barang")
@@ -296,8 +337,6 @@ elif menu == "Dashboard Laporan":
                 st.bar_chart(ven_count)
         
         st.write("---")
-        
-        # BARIS GRAFIK 2: Harga Rata-rata & FITUR BARU (Top 10 Mahal)
         col_chart3, col_chart4 = st.columns(2)
         
         if 'HARGA' in df_master.columns:
@@ -316,7 +355,6 @@ elif menu == "Dashboard Laporan":
                 else:
                     st.info("Belum ada data harga angka yang valid untuk dianalisa.")
             
-            # [FITUR BARU]: TOP 10 BARANG SULTAN
             with col_chart4:
                 st.write("#### 💎 Top 10 Barang Paling Mahal")
                 if not df_valid.empty:
