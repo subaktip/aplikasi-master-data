@@ -77,9 +77,7 @@ try:
     
     kata_kunci = df_master.get('KATA KUNCI', df_master.get('NAMA ITEM', ""))
     df_master['KATA KUNCI'] = kata_kunci.fillna("")
-    
     df_master['Lookup'] = df_master['NAMA BAKU'].astype(str) + " " + df_master['KATA KUNCI'].astype(str)
-    
     df_master_unique = df_master.drop_duplicates(subset=['NAMA BAKU'], keep='last')
     master_map = df_master_unique.set_index('NAMA BAKU').to_dict('index')
     
@@ -89,13 +87,12 @@ except Exception as e:
     st.error(f"⚠️ Gagal Load Master Data: {e}"); st.stop()
 
 # ==========================================
-# MENU 1: PEMBERSIHAN PO (UPDATE NO PO & UNIT KERJA)
+# MENU 1: PEMBERSIHAN PO
 # ==========================================
 if menu == "Pembersihan PO":
     st.header("Upload & Pembersihan Laporan PO")
     st.write("Silakan pilih **Unit Kerja** lalu upload file Excel laporan (.xlsx atau .xls).")
     
-    # [FITUR BARU]: Pemilihan Unit Kerja
     pilihan_unit = ["- Pilih Unit Kerja -", "PBI CPR", "PBI PML", "PIH", "PIH BHN PENOLONG", "RA", "PGP"]
     unit_kerja = st.selectbox("🏢 Laporan ini untuk Unit Kerja / Grup apa?", pilihan_unit)
     
@@ -122,9 +119,7 @@ if menu == "Pembersihan PO":
                     tgl_saat_ini = "-"
                     final_data = []
                     
-                    # [FITUR BARU]: Cari kolom "NO BUKTI" atau setara
                     col_po_name = next((c for c in df_po.columns if 'BUKTI' in c or 'PO' in c), df_po.columns[0])
-                    
                     col_barang = next((c for c in df_po.columns if 'BARANG' in c or 'ITEM' in c), df_po.columns[1])
                     col_qty_name = next((c for c in df_po.columns if 'QTY' in c), None)
                     col_harga_name = next((c for c in df_po.columns if 'HARGA' in c), None)
@@ -151,7 +146,6 @@ if menu == "Pembersihan PO":
                                 if len(t_val) >= 4 and "JUMLAH" not in t_val.upper():
                                     tgl_saat_ini = t_val
                                     
-                        # Tangkap Nomor PO
                         po_val = str(row[col_po_name]).strip() if col_po_name else "-"
                         if po_val.lower() == 'nan' or not po_val: po_val = "-"
                         
@@ -174,7 +168,6 @@ if menu == "Pembersihan PO":
                             match = process.extractOne(str(r['ITEM_KOTOR']), list_lookup, scorer=fuzz.token_set_ratio)
                             if match and match[1] >= 70:
                                 baku = lookup_to_baku[match[0]]; info = master_map.get(baku, {})
-                                # [UPDATE]: Unit Kerja & No PO ditambahkan ke struktur tabel
                                 hasil_rows.append({
                                     "UNIT KERJA": r['UNIT KERJA'], "NO PO": r['NO PO'],
                                     "TANGGAL": r['TANGGAL'], "VENDOR": r['VENDOR'],
@@ -209,42 +202,12 @@ if menu == "Pembersihan PO":
                 try:
                     with st.spinner("Mengirim..."):
                         client = get_gspread_client(); sheet = client.open_by_key(SHEET_ID).worksheets()[-1]
-                        # Pastikan header Sheets bosku disesuaikan urutannya agar pas dengan data baru ini ya!
                         sheet.append_rows(df_res.fillna("").values.tolist())
                         st.success(f"🔥 Berhasil dikirim ke tab '{sheet.title}'!"); del st.session_state['hasil_bersih']
                 except Exception as e: st.error(f"Gagal: {e}")
         
         with t2:
-            try:
-                df_rk = df_res.copy()
-                df_rk['QTY'] = pd.to_numeric(df_rk['QTY'], errors='coerce').fillna(0)
-                df_rk['HARGA'] = pd.to_numeric(df_rk['HARGA'], errors='coerce').fillna(0)
-                df_rk['TOTAL_NILAI'] = df_rk['QTY'] * df_rk['HARGA']
-                
-                df_g = df_rk.groupby(['NAMA BAKU', 'KATEGORI', 'SATUAN']).agg(
-                    TOTAL_QTY=('QTY', 'sum'), TOTAL_BELANJA=('TOTAL_NILAI', 'sum'),
-                    HARGA_TERTINGGI=('HARGA', 'max'), FREKUENSI_ORDER=('NAMA BAKU', 'count')
-                ).reset_index()
-                df_g['HARGA_RATA_RATA'] = (df_g['TOTAL_BELANJA'] / df_g['TOTAL_QTY']).fillna(0).round(0)
-                
-                kolom_tampil = ['NAMA BAKU', 'KATEGORI', 'TOTAL_QTY', 'SATUAN', 'HARGA_RATA_RATA', 'HARGA_TERTINGGI', 'FREKUENSI_ORDER']
-                df_g_murni = df_g[kolom_tampil].copy()
-                
-                df_gv = df_g[kolom_tampil].copy()
-                df_gv['HARGA_RATA_RATA'] = df_gv['HARGA_RATA_RATA'].apply(format_rupiah)
-                df_gv['HARGA_TERTINGGI'] = df_gv['HARGA_TERTINGGI'].apply(format_rupiah)
-                
-                st.dataframe(df_gv, use_container_width=True)
-                
-                if st.button("🚀 TEMBAK REKAP KE GOOGLE SHEETS", key="btn_rkp", type="primary"):
-                    try:
-                        with st.spinner("Mengirim Rekap..."):
-                            client = get_gspread_client(); sheet = client.open_by_key(SHEET_ID).worksheets()[-1]
-                            sheet.append_rows([df_g_murni.columns.tolist()] + df_g_murni.fillna("").values.tolist())
-                            st.success(f"🔥 Rekap berhasil dikirim ke tab '{sheet.title}'!"); del st.session_state['hasil_bersih']
-                    except Exception as e: st.error(f"Gagal: {e}")
-            except Exception as e:
-                st.warning("Gagal memproses rekap. Pastikan ada angka di QTY dan Harga.")
+            st.write("Cek Detail per PO untuk mengirim data ke database.")
 
 # ==========================================
 # MENU 2: PENCARIAN BARANG
@@ -252,147 +215,135 @@ if menu == "Pembersihan PO":
 elif menu == "Pencarian Barang":
     st.header("🔍 Kamus & Histori Barang")
     st.write("Ketik nama barang acak dari lapangan. Sistem akan menampilkan standar nama, riwayat harga, dan vendor terakhir.")
-    
     kata_cari = st.text_input("Ketik Nama Barang / Singkatan (Misal: Accu, Timbangan, Besi):")
-    
     if kata_cari:
         hasil_cari = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
         data_tabel = []
-        
         for match in hasil_cari:
             skor = round(match[1], 1)
             if skor >= 40: 
                 kunci = match[0]
                 baku = lookup_to_baku[kunci]
                 info = master_map.get(baku, {}) 
-                
                 data_tabel.append({
-                    "Akurasi": f"{skor}%",
-                    "Nama Baku (Standar)": baku,
-                    "SKU": info.get('NOMOR SKU', '-'),
-                    "Kategori": info.get('KATEGORI', '-'),
-                    "Detail": info.get('DETAIL KATEGORI', '-'),
-                    "Satuan": info.get('SATUAN', '-'),
-                    "Harga Terakhir": str(info.get('HARGA', '-')),
-                    "Vendor Terakhir": info.get('VENDOR', '-'),
-                    "Tgl Pembelian": str(info.get('TANGGAL', '-'))
+                    "Akurasi": f"{skor}%", "Nama Baku (Standar)": baku, "SKU": info.get('NOMOR SKU', '-'),
+                    "Kategori": info.get('KATEGORI', '-'), "Detail": info.get('DETAIL KATEGORI', '-'),
+                    "Satuan": info.get('SATUAN', '-'), "Harga Terakhir": str(info.get('HARGA', '-')),
+                    "Vendor Terakhir": info.get('VENDOR', '-'), "Tgl Pembelian": str(info.get('TANGGAL', '-'))
                 })
-                
         if data_tabel:
-            df_tampil = pd.DataFrame(data_tabel)
-            st.dataframe(df_tampil, use_container_width=True)
+            st.dataframe(pd.DataFrame(data_tabel), use_container_width=True)
         else:
-            st.warning("⚠️ Tidak ada barang yang mirip di database. Coba kata kunci lain.")
+            st.warning("⚠️ Tidak ada barang yang mirip di database.")
 
 # ==========================================
 # MENU 3: DATABASE VENDOR
 # ==========================================
 elif menu == "Database Vendor":
     st.header("Database Pencarian Vendor")
-    st.write("Ketik nama vendor, nama PIC, alamat, atau jenis barang yang dicari.")
-    
     keyword = st.text_input("Cari Supplier:", placeholder="Misal: Besi, Kimia, atau nama PT...")
-    
     if keyword:
         try:
             df_v = load_data(GID_VENDOR)
             df_v.columns = df_v.columns.str.strip().str.upper()
             res = df_v[df_v.astype(str).apply(lambda x: x.str.contains(keyword, case=False)).any(axis=1)]
-            
             if not res.empty:
-                st.success(f"Ditemukan {len(res)} vendor yang cocok.")
                 for _, v in res.iterrows():
                     with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - {v.get('KATEGORI', '-')} (PIC: {v.get('PIC', '-')})"):
                         col1, col2 = st.columns(2)
                         with col1:
                             st.write(f"**📍 Alamat:** {v.get('ALAMAT', '-')}")
                             st.write(f"**👤 PIC:** {v.get('PIC', '-')}")
-                            st.write(f"**📞 Kontak:** {v.get('KONTAK', '-')}")
-                            st.write(f"**📧 Email:** {v.get('EMAIL', '-')}")
                         with col2:
-                            st.write(f"**💳 Rekening:** {v.get('REKENING', '-')}")
-                            st.write(f"**🏦 A/N Rekening:** {v.get('ATAS NAMA REKENING', '-')}")
+                            st.write(f"**📞 Kontak:** {v.get('KONTAK', '-')}")
                             st.write(f"**⏳ TOP:** {v.get('TOP', '-')}")
-                            st.write(f"**🪪 NPWP:** {v.get('NPWP', '-')}")
-            else: 
-                st.warning("Maaf, vendor dengan kata kunci tersebut tidak ditemukan di database.")
-        except Exception as e: 
-            st.error("Gagal Load Database Vendor. Pastikan tab vendor ada dan GID benar.")
+            else: st.warning("Maaf, vendor tidak ditemukan.")
+        except Exception: st.error("Gagal Load Database Vendor.")
 
 # ==========================================
-# MENU 4: DASHBOARD LAPORAN
+# MENU 4: DASHBOARD LAPORAN (FORMAT PPT MANAJEMEN)
 # ==========================================
 elif menu == "Dashboard Laporan":
-    st.header("📊 Dashboard Analisa Purchasing")
-    st.write("Visualisasi interaktif berdasarkan **Riwayat Transaksi Aktual PO** Anda.")
+    st.header("📊 Executive Dashboard Purchasing")
+    st.write("Laporan Rekapitulasi Pembelian & Frekuensi PO (Berdasarkan Sheet 4)")
     
     try:
         df_dash = load_data(GID_DASHBOARD)
         df_dash.columns = df_dash.columns.str.strip().str.upper()
         
-        if not df_dash.empty:
-            if 'KATEGORI' in df_dash.columns: df_dash['KATEGORI'] = df_dash['KATEGORI'].fillna('-')
-            if 'VENDOR' in df_dash.columns: df_dash['VENDOR'] = df_dash['VENDOR'].fillna('-')
+        # Pastikan kolom utama tersedia
+        if not df_dash.empty and 'NO PO' in df_dash.columns and 'UNIT KERJA' in df_dash.columns:
+            
+            # --- PEMBERSIHAN DATA ---
+            harga_str = df_dash['HARGA'].astype(str).str.upper().str.replace('RP', '', regex=False)
+            harga_str = harga_str.str.split(',').str[0].str.replace(r'[^0-9]', '', regex=True)
+            df_dash['HARGA_NUM'] = pd.to_numeric(harga_str, errors='coerce').fillna(0)
+            df_dash['QTY_NUM'] = pd.to_numeric(df_dash['QTY'], errors='coerce').fillna(0)
+            df_dash['TOTAL_NILAI'] = df_dash['QTY_NUM'] * df_dash['HARGA_NUM']
+            
+            df_dash['TANGGAL_PARSED'] = pd.to_datetime(df_dash['TANGGAL'], errors='coerce')
+            df_dash['BULAN'] = df_dash['TANGGAL_PARSED'].dt.strftime('%B %Y').fillna('Lainnya')
+            
+            # --- 3 KARTU KPI UTAMA ---
+            total_pembelian = df_dash['TOTAL_NILAI'].sum()
+            total_po = df_dash['NO PO'].nunique()
+            total_item = len(df_dash)
             
             col1, col2, col3 = st.columns(3)
-            col1.info(f"🛒 **Total Baris PO:** {len(df_dash):,} Baris")
-            
-            cat_valid = df_dash[df_dash['KATEGORI'] != '-']['KATEGORI'].nunique() if 'KATEGORI' in df_dash.columns else 0
-            col2.success(f"🗂️ **Kategori Dibeli:** {cat_valid} Kategori")
-            
-            if 'VENDOR' in df_dash.columns:
-                ven_valid = df_dash[~df_dash['VENDOR'].isin(['-', ''])]["VENDOR"].nunique()
-            else:
-                ven_valid = 0
-            col3.warning(f"🏢 **Vendor Aktif:** {ven_valid} Vendor")
+            col1.info(f"💰 **Total Pembelian:** {format_rupiah(total_pembelian)}")
+            col2.success(f"📄 **Total Dokumen PO:** {total_po} PO")
+            col3.warning(f"📦 **Total Baris Item:** {total_item} Item")
             
             st.write("---")
             
-            col_chart1, col_chart2 = st.columns(2)
-            with col_chart1:
-                st.write("#### 📊 Top 10 Kategori Sering Dibeli")
-                if 'KATEGORI' in df_dash.columns:
-                    cat_count = df_dash[df_dash['KATEGORI'] != '-']['KATEGORI'].value_counts().head(10)
-                    st.bar_chart(cat_count)
+            # --- BARIS 1: TABEL BULAN & TOP PO ---
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("#### 📅 Rekapitulasi per Bulan")
+                rekap_bulan = df_dash.groupby('BULAN').agg(
+                    Jumlah_PO=('NO PO', 'nunique'),
+                    Total_Harga=('TOTAL_NILAI', 'sum')
+                ).reset_index()
+                rekap_bulan['Total_Harga'] = rekap_bulan['Total_Harga'].apply(format_rupiah)
+                st.dataframe(rekap_bulan, use_container_width=True)
                 
-            with col_chart2:
-                st.write("#### 🏢 Top 10 Vendor Tersering")
-                if 'VENDOR' in df_dash.columns:
-                    df_ven = df_dash[~df_dash['VENDOR'].isin(['-', ''])]
-                    ven_count = df_ven['VENDOR'].value_counts().head(10)
-                    st.bar_chart(ven_count)
-            
+            with c2:
+                st.write("#### 🏆 Top 10 Item (Berdasarkan Total PO)")
+                top_po = df_dash[~df_dash['NAMA BAKU'].str.contains('CEK MANUAL', na=False)].groupby('NAMA BAKU').agg(
+                    TOTAL_PO=('NO PO', 'nunique')
+                ).reset_index().sort_values('TOTAL_PO', ascending=False).head(10)
+                st.dataframe(top_po, use_container_width=True)
+                
             st.write("---")
-            col_chart3, col_chart4 = st.columns(2)
             
-            if 'HARGA' in df_dash.columns:
-                harga_str = df_dash['HARGA'].astype(str).str.upper().str.replace('RP', '', regex=False)
-                harga_str = harga_str.str.split(',').str[0]
-                harga_str = harga_str.str.replace(r'[^0-9]', '', regex=True)
+            # --- BARIS 2: TABEL UNIT KERJA & TOP QTY ---
+            c3, c4 = st.columns(2)
+            with c3:
+                st.write("#### 🏢 Pembelian & Frekuensi per Unit Kerja")
+                rekap_unit = df_dash.groupby('UNIT KERJA').agg(
+                    Total_Pembelian=('TOTAL_NILAI', 'sum'),
+                    Jumlah_PO=('NO PO', 'nunique')
+                ).reset_index().sort_values('Total_Pembelian', ascending=False)
                 
-                df_dash['HARGA_NUM'] = pd.to_numeric(harga_str, errors='coerce').fillna(0)
-                df_valid = df_dash[(df_dash['HARGA_NUM'] > 0) & (df_dash['HARGA_NUM'] <= 10000000000)]
+                jml_bulan = df_dash['BULAN'].nunique()
+                jml_bulan = jml_bulan if jml_bulan > 0 else 1
+                rekap_unit['Rata-Rata PO/Bln'] = (rekap_unit['Jumlah_PO'] / jml_bulan).astype(int)
+                rekap_unit['Total_Pembelian'] = rekap_unit['Total_Pembelian'].apply(format_rupiah)
+                st.dataframe(rekap_unit, use_container_width=True)
+                    
+            with c4:
+                st.write("#### 📈 Top 10 Item (Berdasarkan Kuantitas)")
+                top_qty = df_dash[~df_dash['NAMA BAKU'].str.contains('CEK MANUAL', na=False)].groupby('NAMA BAKU').agg(
+                    TOTAL_QTY=('QTY_NUM', 'sum')
+                ).reset_index().sort_values('TOTAL_QTY', ascending=False).head(10)
                 
-                with col_chart3:
-                    st.write("#### 💰 Rata-Rata Harga per Kategori")
-                    if 'KATEGORI' in df_valid.columns:
-                        avg_price = df_valid[df_valid['KATEGORI'] != '-'].groupby('KATEGORI')['HARGA_NUM'].mean().sort_values(ascending=False).head(10)
-                        if not avg_price.empty:
-                            st.bar_chart(avg_price)
-                        else:
-                            st.info("Belum ada data harga angka yang valid.")
+                # Tambahkan kolom Satuan agar sama persis seperti PPT
+                satuan_dict = df_dash.drop_duplicates('NAMA BAKU').set_index('NAMA BAKU')['SATUAN'].to_dict()
+                top_qty['SATUAN'] = top_qty['NAMA BAKU'].map(satuan_dict)
                 
-                with col_chart4:
-                    st.write("#### 💎 Top 10 Transaksi Termahal")
-                    if not df_valid.empty and 'NAMA BAKU' in df_valid.columns:
-                        top_mahal = df_valid[['NAMA BAKU', 'HARGA_NUM']].dropna(subset=['NAMA BAKU'])
-                        top_mahal = top_mahal[top_mahal['NAMA BAKU'] != '⚠️ CEK MANUAL']
-                        top_mahal = top_mahal.sort_values(by='HARGA_NUM', ascending=False).drop_duplicates(subset=['NAMA BAKU']).head(10)
-                        top_mahal = top_mahal.set_index('NAMA BAKU')
-                        st.bar_chart(top_mahal)
-                    else:
-                        st.info("Belum ada data harga yang valid.")
+                st.dataframe(top_qty, use_container_width=True)
+                
         else:
-            st.warning("Data Transaksi Sheet 4 masih kosong.")
+            st.warning("⚠️ Data Transaksi Sheet 4 masih kosong atau Judul Kolom salah. Pastikan sudah mengubah Header di Sheet 4 sesuai panduan!")
     except Exception as e:
-        st.error(f"Gagal memuat Dashboard: {e}. Pastikan GID_DASHBOARD benar dan Sheet 4 memiliki data.")
+        st.error(f"Gagal memuat Dashboard: {e}")
