@@ -364,7 +364,7 @@ elif menu == "Dashboard Laporan":
                 c_a, c_b = st.columns([1, 1.5])
                 
                 with c_a:
-                    st.write("#### 🍩 Porsi Anggaran per Pabrik")
+                    st.write("#### Porsi Anggaran per Pabrik")
                     if filter_unit == "Semua Unit Kerja":
                         rekap_u = df_filtered.groupby(c_unit)['TOTAL'].sum().reset_index()
                         # Hapus unit kosong/strip agar grafik bersih
