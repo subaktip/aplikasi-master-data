@@ -26,8 +26,8 @@ with st.sidebar:
     
     menu = option_menu(
         menu_title="", 
-        options=["Pembersihan PO", "Pencarian Barang", "Database Vendor", "Dashboard Laporan"],
-        icons=["magic", "search", "shop", "bar-chart-line"], 
+        options=["Pembersihan PO", "Pencarian Barang", "Database Vendor", "Dashboard Laporan", "Maintenance Data"],
+        icons=["magic", "search", "shop", "bar-chart-line", "tools"], 
         default_index=0,
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
@@ -61,11 +61,10 @@ def format_rupiah(angka):
     try: return f"Rp {int(angka):,}".replace(',', '.')
     except: return "Rp 0"
 
-# [UPDATE SAKTI]: Memaksa semua kode yang diambil menjadi 3 Digit (ZFILL)
 def extract_code(text):
     try: 
         kode = text.split('(')[1].split(')')[0].strip()
-        return kode.zfill(3) # Ini kuncinya! (1 -> 001, 15 -> 015)
+        return kode.zfill(3) 
     except: 
         return "000"
 
@@ -90,16 +89,14 @@ try:
 except Exception as e:
     st.error(f"⚠️ Gagal Load Master Data: {e}"); st.stop()
 
-# --- FUNGSI AUTO SKU GENERATOR (Strict 3-3-3-3) ---
-def generate_new_sku(prefix_val, kat_full, det_full):
-    prefix = prefix_val.strip()
-    if len(prefix) != 3: prefix = prefix.zfill(3) # Pastikan prefix juga 3 digit
-    
-    c_kat = extract_code(kat_full)
-    c_det = extract_code(det_full)
+def generate_new_sku(prefix_val, kat_full, det_full, current_df=df_master):
+    prefix = str(prefix_val).strip().zfill(3)
+    c_kat = extract_code(str(kat_full))
+    c_det = extract_code(str(det_full))
     
     pattern = f"{prefix}-{c_kat}-{c_det}-"
-    df_match = df_master[df_master['NOMOR SKU'].astype(str).str.contains(pattern, na=False)]
+    # Gunakan current_df agar nomor urut selalu update saat loop massal
+    df_match = current_df[current_df['NOMOR SKU'].astype(str).str.contains(pattern, na=False)]
     
     if not df_match.empty:
         last_nums = []
@@ -117,14 +114,8 @@ def generate_new_sku(prefix_val, kat_full, det_full):
 # ==========================================
 if menu == "Pembersihan PO":
     st.header("Upload & Pembersihan Laporan PO")
-    
-    pilihan_unit = [
-        "- Auto-Detect dari Keterangan -", 
-        "PBI CPR", "PBI PML", "PBI MAUK", "PP CUP", 
-        "PIH", "PIH BHN PENOLONG", "RA", "PGP"
-    ]
+    pilihan_unit = ["- Auto-Detect dari Keterangan -", "PBI CPR", "PBI PML", "PBI MAUK", "PP CUP", "PIH", "PIH BHN PENOLONG", "RA", "PGP"]
     unit_kerja = st.selectbox("🏢 Pilih Unit Kerja:", pilihan_unit)
-    
     file_po = st.file_uploader("Upload Excel Laporan (.xlsx/.xls)", type=["xlsx", "xls"])
     
     if file_po:
@@ -211,7 +202,6 @@ if menu == "Pembersihan PO":
 
     if 'hasil_po' in st.session_state:
         t1, t2, t3 = st.tabs(["📄 Hasil Pembersihan", "🆕 Registrasi SKU Otomatis", "📊 Rekap"])
-        
         with t1:
             st.dataframe(st.session_state['hasil_po'], use_container_width=True)
             if st.button("💾 Kirim Data Bersih ke Sheet 4"):
@@ -228,43 +218,34 @@ if menu == "Pembersihan PO":
             st.write("### 🤖 Asisten Registrasi Barang Baru (Format 12 Digit)")
             df_curr = st.session_state['hasil_po']
             new_items = df_curr[df_curr['NAMA BAKU'] == "⚠️ BARANG BARU"]['NAMA ITEM'].unique()
-            
             if len(new_items) > 0:
                 item_select = st.selectbox("Pilih barang yang ingin didaftarkan SKU-nya:", new_items)
-                
-                # [UPDATE]: Ditambah 1 Kolom untuk Tipe Sparepart (Prefix)
                 c_p, c_a, c_b = st.columns(3)
                 
                 with c_p:
                     prefix_list = ["001 - Sparepart Mesin", "002 - Supporting Material", "003 - Bahan Baku", "004 - ATK & Umum", "005 - IT / Komputer", "✨ + Tambah Kode Baru..."]
                     pref_dropdown = st.selectbox("Tipe Barang (Blok 1):", prefix_list)
-                    if pref_dropdown == "✨ + Tambah Kode Baru...":
-                        prefix_sel = st.text_input("Ketik Kode (3 Angka):", max_chars=3, placeholder="Cth: 006")
-                    else:
-                        prefix_sel = pref_dropdown[:3] # Hanya ambil 3 angka pertamanya
+                    if pref_dropdown == "✨ + Tambah Kode Baru...": prefix_sel = st.text_input("Ketik Kode (3 Angka):", max_chars=3, placeholder="Cth: 006")
+                    else: prefix_sel = pref_dropdown[:3]
                 
                 with c_a:
                     kat_list = sorted([k for k in df_master['KATEGORI'].unique() if k and k != '-'])
                     kat_list.append("✨ + Tambah Kategori Baru...")
                     kat_dropdown = st.selectbox("Kategori (Blok 2):", kat_list)
-                    if kat_dropdown == "✨ + Tambah Kategori Baru...":
-                        kat_sel = st.text_input("Kategori Baru (Format: NAMA (KODE)):", placeholder="Cth: ATK (050)")
+                    if kat_dropdown == "✨ + Tambah Kategori Baru...": kat_sel = st.text_input("Kategori Baru (Format: NAMA (KODE)):", placeholder="Cth: ATK (050)")
                     else: kat_sel = kat_dropdown
 
                 with c_b:
-                    if kat_dropdown != "✨ + Tambah Kategori Baru...":
-                        det_list = sorted([d for d in df_master[df_master['KATEGORI'] == kat_dropdown]['DETAIL KATEGORI'].unique() if d and d != '-'])
+                    if kat_dropdown != "✨ + Tambah Kategori Baru...": det_list = sorted([d for d in df_master[df_master['KATEGORI'] == kat_dropdown]['DETAIL KATEGORI'].unique() if d and d != '-'])
                     else: det_list = []
                     det_list.append("✨ + Tambah Detail Baru...")
                     det_dropdown = st.selectbox("Detail Kategori (Blok 3):", det_list)
-                    if det_dropdown == "✨ + Tambah Detail Baru...":
-                        det_sel = st.text_input("Detail Baru (Format: NAMA (KODE)):", placeholder="Cth: KERTAS (001)")
+                    if det_dropdown == "✨ + Tambah Detail Baru...": det_sel = st.text_input("Detail Baru (Format: NAMA (KODE)):", placeholder="Cth: KERTAS (001)")
                     else: det_sel = det_dropdown
                 
                 if prefix_sel and kat_sel and det_sel:
                     sku_baru = generate_new_sku(prefix_sel, kat_sel, det_sel)
                     st.info(f"**Saran SKU Baru:** `{sku_baru}`")
-                    
                     if st.button("🔥 Daftarkan & Update PO", type="primary"):
                         try:
                             row_data = st.session_state['hasil_po'][st.session_state['hasil_po']['NAMA ITEM'] == item_select].iloc[0]
@@ -276,7 +257,6 @@ if menu == "Pembersihan PO":
                                 row_data.get('UNIT KERJA', '-'), row_data.get('TANGGAL', '-')
                             ]
                             sheet_master.append_row(new_master_row)
-                            
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'NAMA BAKU'] = item_select
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'SKU'] = sku_baru
                             st.session_state['hasil_po'].loc[st.session_state['hasil_po']['NAMA ITEM'] == item_select, 'KATEGORI'] = kat_sel
@@ -286,7 +266,6 @@ if menu == "Pembersihan PO":
                             time.sleep(1); st.rerun()
                         except Exception as e: st.error(f"Gagal Registrasi: {e}")
             else: st.success("Semua barang di laporan ini sudah terdaftar. Mantap!")
-
         with t3: st.write("Lakukan pengiriman data di Tab 1 untuk melihat rekapitulasi.")
 
 # ==========================================
@@ -368,3 +347,56 @@ elif menu == "Dashboard Laporan":
                         st.bar_chart(top_i)
         else: st.warning("Database transaksi masih kosong.")
     except Exception as e: st.error(f"Dashboard Error: {e}")
+
+# ==========================================
+# MENU 5: MAINTENANCE DATA (BARU)
+# ==========================================
+elif menu == "Maintenance Data":
+    st.header("🛠️ Maintenance & Auto-Fill Master Data")
+    st.write("Sistem ini akan memindai **Sheet 1 (Master Data)** dan secara otomatis mengisi nomor SKU yang masih kosong berdasarkan pola Kategori & Detail (3-3-3-3).")
+    
+    # Hitung data kosong untuk preview
+    df_missing = df_master[df_master['NOMOR SKU'].astype(str).str.strip().isin(['', 'NAN', '-'])]
+    
+    if not df_missing.empty:
+        st.warning(f"⚠️ Ditemukan **{len(df_missing)}** barang tanpa Nomor SKU di Master Data!")
+        st.dataframe(df_missing[['NAMA BAKU', 'KATEGORI', 'DETAIL KATEGORI', 'NOMOR SKU']])
+        
+        if st.button("🚀 Eksekusi Auto-Fill SKU Sekarang!", type="primary", use_container_width=True):
+            with st.spinner("Memindai Sheet 1 dan menyuntikkan SKU baru secara massal..."):
+                try:
+                    client = get_gspread_client()
+                    sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
+                    all_data = sheet_master.get_all_values()
+                    
+                    headers = [str(h).strip().upper() for h in all_data[0]]
+                    df_m = pd.DataFrame(all_data[1:], columns=headers)
+                    
+                    col_sku = next((c for c in headers if 'SKU' in c), None)
+                    col_kat = next((c for c in headers if 'KATEGORI' in c and 'DETAIL' not in c), None)
+                    col_det = next((c for c in headers if 'DETAIL' in c), None)
+                    
+                    if col_sku and col_kat and col_det:
+                        # Iterasi dan generate SKU
+                        for idx, row in df_m.iterrows():
+                            val_sku = str(row[col_sku]).strip()
+                            if val_sku in ['', 'NAN', '-', 'NONE']:
+                                kat_val = row[col_kat]
+                                det_val = row[col_det]
+                                # Default prefix '001' untuk auto-fill massal jika kolom prefix tidak ada
+                                new_sku = generate_new_sku("001", kat_val, det_val, current_df=df_m)
+                                df_m.at[idx, col_sku] = new_sku
+                        
+                        # Timpa ulang (Overwrite) Sheet 1 dengan data yang sudah lengkap
+                        sheet_master.clear()
+                        sheet_master.update(values=[df_m.columns.tolist()] + df_m.values.tolist())
+                        
+                        st.success("✅ BERHASIL! Semua baris kosong di Master Data kini telah memiliki SKU.")
+                        time.sleep(2)
+                        st.rerun()
+                    else:
+                        st.error("Gagal mendeteksi kolom SKU, KATEGORI, atau DETAIL KATEGORI di Sheet 1.")
+                except Exception as e:
+                    st.error(f"Terjadi kesalahan saat Auto-Fill: {e}")
+    else:
+        st.success("🎉 Database Anda sehat! Tidak ditemukan barang dengan SKU kosong di Master Data.")
