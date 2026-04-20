@@ -7,6 +7,7 @@ import json
 import gspread
 from google.oauth2.service_account import Credentials
 from streamlit_option_menu import option_menu
+import plotly.express as px  # <-- TAMBAHAN BARU UNTUK GRAFIK MODERN
 
 # ==========================================
 # 1. KONFIGURASI HALAMAN & SIDEBAR
@@ -109,7 +110,7 @@ def generate_new_sku(prefix_val, kat_full, det_full, current_df=df_master):
     return f"{prefix}-{c_kat}-{c_det}-{next_val:03d}"
 
 # ==========================================
-# MENU 1: PEMBERSIHAN PO
+# MENU 1: PEMBERSIHAN PO (DUAL-FORMAT SCANNER)
 # ==========================================
 if menu == "Pembersihan PO":
     st.header("Upload & Pembersihan Laporan PO")
@@ -123,7 +124,7 @@ if menu == "Pembersihan PO":
             header_idx = -1
             for i, row in raw_excel.iterrows():
                 row_str = " ".join([str(val).upper() for val in row.values])
-                if 'NAMA BARANG' in row_str or 'NAMA ITEM' in row_str:
+                if 'BARANG' in row_str or 'ITEM' in row_str or 'BAHAN' in row_str:
                     header_idx = i; break
             
             if header_idx != -1:
@@ -135,19 +136,23 @@ if menu == "Pembersihan PO":
                 
                 col_po = next((c for c in df_po.columns if 'BUKTI' in c or 'PO' in c), df_po.columns[0])
                 col_barang = next((c for c in df_po.columns if 'BARANG' in c or 'ITEM' in c), df_po.columns[1])
-                col_qty = next((c for c in df_po.columns if 'QTY' in c), None)
+                col_qty = next((c for c in df_po.columns if 'QTY' in c or 'JUMLAH' in c and 'RP' not in c), None)
                 col_harga = next((c for c in df_po.columns if 'HARGA' in c), None)
-                col_tgl = next((c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c or c.replace('.', '').strip() in ['T', 'DATE']), None)
+                col_tgl = next((c for c in df_po.columns if 'TGL' in c or 'TANGGAL' in c or 'DATE' in c), None)
                 col_ket = next((c for c in df_po.columns if 'KETERANGAN' in c or 'KET' in c or 'ALAMAT' in c), None)
+                
+                col_vendor_khusus = next((c for c in df_po.columns if any(x in c for x in ['VENDOR', 'PEMASOK', 'SUPPLIER'])), None)
                 
                 for i, row in df_po.iterrows():
                     val_barang = str(row[col_barang]).strip()
                     is_empty = (val_barang == '' or val_barang.lower() == 'nan' or 'UNNAMED' in val_barang.upper())
                     
-                    if is_empty:
+                    if col_vendor_khusus and not pd.isna(row[col_vendor_khusus]) and str(row[col_vendor_khusus]).strip().lower() != 'nan':
+                        vendor_saat_ini = str(row[col_vendor_khusus]).strip()
+                    elif is_empty:
                         for val in row.values:
                             v_str = str(val).strip()
-                            if v_str and v_str.lower() != 'nan' and not any(x in v_str.upper() for x in ["JUMLAH", "RP", "TOTAL"]):
+                            if v_str and v_str.lower() != 'nan' and not any(x in v_str.upper() for x in ["JUMLAH", "RP", "TOTAL", "PPN"]):
                                 if len(v_str) > 2 and not v_str.replace('.', '').replace(',', '').isdigit():
                                     vendor_saat_ini = v_str; break 
                     
@@ -302,10 +307,12 @@ elif menu == "Database Vendor":
                 st.write(f"**Alamat:** {v.get('ALAMAT', '-')}")
 
 # ==========================================
-# MENU 4: DASHBOARD LAPORAN
+# MENU 4: DASHBOARD LAPORAN (UPDATE: ELEGAN & SMART FILTER)
 # ==========================================
 elif menu == "Dashboard Laporan":
-    st.header("📊 Executive Dashboard Purchasing")
+    st.title("📊 Executive Dashboard")
+    st.markdown("Pantau performa anggaran dan pergerakan material secara *real-time*.")
+    
     try:
         client = get_gspread_client()
         sheet_dash = client.open_by_key(SHEET_ID).get_worksheet_by_id(int(GID_DASHBOARD))
@@ -321,30 +328,77 @@ elif menu == "Dashboard Laporan":
             c_baku = next((c for c in df_d.columns if 'BAKU' in c), None)
             
             if c_po and c_unit and c_harga and c_baku:
+                # Konversi angka yang bersih
                 h_str = df_d[c_harga].astype(str).str.upper().str.replace('RP', '', regex=False).str.split(',').str[0].str.replace(r'[^0-9]', '', regex=True)
                 df_d['H_NUM'] = pd.to_numeric(h_str, errors='coerce').fillna(0)
                 df_d['Q_NUM'] = pd.to_numeric(df_d['QTY'], errors='coerce').fillna(0)
                 df_d['TOTAL'] = df_d['H_NUM'] * df_d['Q_NUM']
                 
-                col1, col2, col3 = st.columns(3)
-                col1.metric("💰 Total Belanja", format_rupiah(df_d['TOTAL'].sum()))
-                col2.metric("📄 Total PO", df_d[c_po].replace('', pd.NA).dropna().nunique())
-                col3.metric("🏢 Unit Aktif", df_d[c_unit].nunique())
+                # --- FITUR SMART FILTER (SLICER) ---
+                list_unit = ["Semua Unit Kerja"] + sorted([u for u in df_d[c_unit].unique() if str(u).strip() != ""])
+                col_f1, col_f2 = st.columns([1, 3])
+                with col_f1:
+                    filter_unit = st.selectbox("🎯 Filter Berdasarkan:", list_unit)
                 
-                st.write("---")
-                c_a, c_b = st.columns(2)
+                # Aplikasikan Filter
+                if filter_unit != "Semua Unit Kerja":
+                    df_filtered = df_d[df_d[c_unit] == filter_unit]
+                else:
+                    df_filtered = df_d
+                
+                st.markdown("---")
+                
+                # --- KPI CARDS (METRIK UTAMA) ---
+                col1, col2, col3 = st.columns(3)
+                tot_belanja = df_filtered['TOTAL'].sum()
+                tot_po = df_filtered[c_po].replace('', pd.NA).dropna().nunique()
+                unit_aktif = df_filtered[c_unit].nunique()
+                
+                col1.metric("💰 Total Belanja", format_rupiah(tot_belanja))
+                col2.metric("📄 Total Lembar PO", f"{tot_po} Transaksi")
+                col3.metric("🏢 Unit Aktif", f"{unit_aktif} Pabrik")
+                
+                st.write("<br>", unsafe_allow_html=True)
+                
+                # --- VISUALISASI MODERN PLOTLY ---
+                c_a, c_b = st.columns([1, 1.5])
+                
                 with c_a:
-                    st.write("#### 📅 Pengeluaran per Unit Kerja")
-                    rekap_u = df_d.groupby(c_unit).agg(Total=('TOTAL', 'sum'), Jml_PO=(c_po, 'nunique')).reset_index()
-                    rekap_u['Total'] = rekap_u['Total'].apply(format_rupiah)
-                    st.dataframe(rekap_u, use_container_width=True)
+                    st.write("#### 🍩 Porsi Anggaran per Pabrik")
+                    if filter_unit == "Semua Unit Kerja":
+                        rekap_u = df_filtered.groupby(c_unit)['TOTAL'].sum().reset_index()
+                        # Hapus unit kosong/strip agar grafik bersih
+                        rekap_u = rekap_u[rekap_u[c_unit].str.strip() != ""] 
+                        
+                        fig_pie = px.pie(rekap_u, names=c_unit, values='TOTAL', hole=0.5,
+                                         color_discrete_sequence=px.colors.sequential.Teal)
+                        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                        fig_pie.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                    else:
+                        st.info(f"Menampilkan data khusus untuk **{filter_unit}**.")
+
                 with c_b:
-                    st.write("#### 🏆 Top 10 Item (by PO)")
-                    df_valid = df_d[~df_d[c_baku].str.contains('CEK MANUAL|BARANG BARU', na=False)]
+                    st.write("#### 📊 Top 10 Barang Paling Sering Dipesan")
+                    df_valid = df_filtered[~df_filtered[c_baku].str.contains('CEK MANUAL|BARANG BARU', case=False, na=False)]
                     if not df_valid.empty:
-                        top_i = df_valid.groupby(c_baku)[c_po].nunique().sort_values(ascending=False).head(10)
-                        st.bar_chart(top_i)
-        else: st.warning("Database transaksi masih kosong.")
+                        # Hapus string kosong
+                        df_valid = df_valid[df_valid[c_baku].str.strip() != ""]
+                        top_i = df_valid.groupby(c_baku)[c_po].nunique().reset_index()
+                        top_i.columns = ['Nama Barang', 'Jumlah PO']
+                        top_i = top_i.sort_values(by='Jumlah PO', ascending=False).head(10)
+                        
+                        fig_bar = px.bar(top_i, x='Jumlah PO', y='Nama Barang', orientation='h', 
+                                         text='Jumlah PO', color='Jumlah PO', color_continuous_scale='Greens')
+                        fig_bar.update_traces(textposition='outside')
+                        fig_bar.update_layout(
+                            yaxis={'categoryorder':'total ascending'}, # Balik urutan agar yg terbesar di atas
+                            margin=dict(t=10, b=10, l=10, r=10),
+                            coloraxis_showscale=False,
+                            xaxis_title=None, yaxis_title=None
+                        )
+                        st.plotly_chart(fig_bar, use_container_width=True)
+        else: st.warning("Database transaksi masih kosong. Silakan proses Laporan PO terlebih dahulu.")
     except Exception as e: st.error(f"Dashboard Error: {e}")
 
 # ==========================================
@@ -352,16 +406,13 @@ elif menu == "Dashboard Laporan":
 # ==========================================
 elif menu == "Maintenance Data":
     st.header("🛠️ Maintenance & Auto-Fill Master Data")
-    st.write("Sistem ini akan memindai **Sheet 1 (Master Data)** dan secara otomatis mengisi nomor SKU yang masih kosong berdasarkan pola Kategori & Detail (3-3-3-3).")
+    st.write("Sistem akan memindai **Sheet 1 (Master Data)** dan mengisi nomor SKU yang kosong/rusak berdasarkan pola 12 Digit (3-3-3-3).")
     
-    # [BUG FIXED]: Pembacaan sel kosong yang lebih akurat (menangani nilai NaN dan string kosong)
-    df_missing = df_master[
-        df_master['NOMOR SKU'].isna() | 
-        df_master['NOMOR SKU'].astype(str).str.strip().str.upper().isin(['', 'NAN', 'NONE', 'NULL', '-'])
-    ]
+    invalid_mask = df_master['NOMOR SKU'].isna() | (df_master['NOMOR SKU'].astype(str).str.strip().str.len() < 10)
+    df_missing = df_master[invalid_mask]
     
     if not df_missing.empty:
-        st.warning(f"⚠️ Ditemukan **{len(df_missing)}** barang tanpa Nomor SKU di Master Data!")
+        st.warning(f"⚠️ Ditemukan **{len(df_missing)}** barang tanpa Nomor SKU (atau SKU tidak valid) di Master Data!")
         st.dataframe(df_missing[['NAMA BAKU', 'KATEGORI', 'DETAIL KATEGORI', 'NOMOR SKU']])
         
         if st.button("🚀 Eksekusi Auto-Fill SKU Sekarang!", type="primary", use_container_width=True):
@@ -379,22 +430,18 @@ elif menu == "Maintenance Data":
                     col_det = next((c for c in headers if 'DETAIL' in c), None)
                     
                     if col_sku and col_kat and col_det:
-                        # Iterasi dan generate SKU
                         for idx, row in df_m.iterrows():
-                            val_sku = str(row[col_sku]).strip().upper()
-                            # Deteksi kosong
-                            if val_sku in ['', 'NAN', 'NONE', 'NULL', '-'] or pd.isna(row[col_sku]):
+                            val_sku = str(row[col_sku]).strip()
+                            if len(val_sku) < 10 or val_sku.upper() in ['NAN', 'NONE', 'NULL', '#N/A']:
                                 kat_val = row[col_kat]
                                 det_val = row[col_det]
-                                # Default prefix '001' untuk auto-fill massal jika kolom prefix tidak ada di sheet
                                 new_sku = generate_new_sku("001", kat_val, det_val, current_df=df_m)
                                 df_m.at[idx, col_sku] = new_sku
                         
-                        # Timpa ulang (Overwrite) Sheet 1 dengan data yang sudah lengkap
                         sheet_master.clear()
                         sheet_master.update(values=[df_m.columns.tolist()] + df_m.values.tolist())
                         
-                        st.success("✅ BERHASIL! Semua baris kosong di Master Data kini telah memiliki SKU.")
+                        st.success("✅ BERHASIL! Semua baris kosong di Master Data kini telah memiliki SKU 12 Digit yang valid.")
                         time.sleep(2)
                         st.rerun()
                     else:
@@ -402,4 +449,4 @@ elif menu == "Maintenance Data":
                 except Exception as e:
                     st.error(f"Terjadi kesalahan saat Auto-Fill: {e}")
     else:
-        st.success("🎉 Database Anda sehat! Tidak ditemukan barang dengan SKU kosong di Master Data.")
+        st.success("🎉 Database Anda sehat! Semua barang memiliki SKU 12 Digit yang valid.")
