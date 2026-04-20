@@ -95,7 +95,6 @@ def generate_new_sku(prefix_val, kat_full, det_full, current_df=df_master):
     c_det = extract_code(str(det_full))
     
     pattern = f"{prefix}-{c_kat}-{c_det}-"
-    # Gunakan current_df agar nomor urut selalu update saat loop massal
     df_match = current_df[current_df['NOMOR SKU'].astype(str).str.contains(pattern, na=False)]
     
     if not df_match.empty:
@@ -349,14 +348,17 @@ elif menu == "Dashboard Laporan":
     except Exception as e: st.error(f"Dashboard Error: {e}")
 
 # ==========================================
-# MENU 5: MAINTENANCE DATA (BARU)
+# MENU 5: MAINTENANCE DATA
 # ==========================================
 elif menu == "Maintenance Data":
     st.header("🛠️ Maintenance & Auto-Fill Master Data")
     st.write("Sistem ini akan memindai **Sheet 1 (Master Data)** dan secara otomatis mengisi nomor SKU yang masih kosong berdasarkan pola Kategori & Detail (3-3-3-3).")
     
-    # Hitung data kosong untuk preview
-    df_missing = df_master[df_master['NOMOR SKU'].astype(str).str.strip().isin(['', 'NAN', '-'])]
+    # [BUG FIXED]: Pembacaan sel kosong yang lebih akurat (menangani nilai NaN dan string kosong)
+    df_missing = df_master[
+        df_master['NOMOR SKU'].isna() | 
+        df_master['NOMOR SKU'].astype(str).str.strip().str.upper().isin(['', 'NAN', 'NONE', 'NULL', '-'])
+    ]
     
     if not df_missing.empty:
         st.warning(f"⚠️ Ditemukan **{len(df_missing)}** barang tanpa Nomor SKU di Master Data!")
@@ -379,11 +381,12 @@ elif menu == "Maintenance Data":
                     if col_sku and col_kat and col_det:
                         # Iterasi dan generate SKU
                         for idx, row in df_m.iterrows():
-                            val_sku = str(row[col_sku]).strip()
-                            if val_sku in ['', 'NAN', '-', 'NONE']:
+                            val_sku = str(row[col_sku]).strip().upper()
+                            # Deteksi kosong
+                            if val_sku in ['', 'NAN', 'NONE', 'NULL', '-'] or pd.isna(row[col_sku]):
                                 kat_val = row[col_kat]
                                 det_val = row[col_det]
-                                # Default prefix '001' untuk auto-fill massal jika kolom prefix tidak ada
+                                # Default prefix '001' untuk auto-fill massal jika kolom prefix tidak ada di sheet
                                 new_sku = generate_new_sku("001", kat_val, det_val, current_df=df_m)
                                 df_m.at[idx, col_sku] = new_sku
                         
