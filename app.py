@@ -67,13 +67,14 @@ def extract_code(text):
     try: return text.split('(')[1].split(')')[0].strip().zfill(3) 
     except: return "000"
 
-# --- FUNGSI CONVERT LINK GDRIVE ---
+# --- FUNGSI CONVERT LINK GDRIVE (UPDATE ANTI-BLOKIR) ---
 def convert_gdrive_link(url):
     if not isinstance(url, str): return ""
     match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
     if match:
         file_id = match.group(1)
-        return f"https://drive.google.com/uc?export=view&id={file_id}"
+        # Jalur thumbnail lebih stabil dan kebal blokir preview
+        return f"https://drive.google.com/thumbnail?id={file_id}&sz=w800"
     return url
 
 # --- PERSIAPAN KAMUS PINTAR ---
@@ -87,7 +88,6 @@ try:
     if 'KATA KUNCI' not in df_master.columns: df_master['KATA KUNCI'] = ""
     df_master['KATA KUNCI'] = df_master['KATA KUNCI'].fillna("").astype(str)
     
-    # Deteksi Kolom LINK GAMBAR
     if 'LINK GAMBAR' not in df_master.columns: df_master['LINK GAMBAR'] = ""
     df_master['LINK GAMBAR'] = df_master['LINK GAMBAR'].fillna("").astype(str)
     
@@ -115,7 +115,7 @@ def generate_new_sku(prefix_val, kat_full, det_full, current_df=df_master):
     return f"{prefix}-{c_kat}-{c_det}-{next_val:03d}"
 
 # ==========================================
-# MENU 1: PEMBERSIHAN PO
+# MENU 1: PEMBERSIHAN PO (DUAL-FORMAT)
 # ==========================================
 if menu == "Pembersihan PO":
     st.header("Upload & Pembersihan Laporan PO")
@@ -285,7 +285,7 @@ elif menu == "E-Catalog & Studio":
     t_cat, t_studio = st.tabs(["📖 Galeri E-Catalog", "🛠️ Studio Jodoh Gambar"])
     
     with t_cat:
-        st.write("Silakan cari atau filter barang untuk melihat wujud fisiknya.")
+        st.write("Cari dan filter barang untuk melihat wujud fisiknya.")
         col_s, col_f = st.columns([2, 1])
         with col_s: search_cat = st.text_input("🔍 Cari Nama Barang atau SKU:")
         with col_f:
@@ -315,20 +315,19 @@ elif menu == "E-Catalog & Studio":
                     
                     st.markdown(f"<h5 style='margin-top:10px; font-size:15px; color:#2e7b32;'>{row['NAMA BAKU']}</h5>", unsafe_allow_html=True)
                     st.markdown(f"<p style='font-size:12px; color:#666; margin:0;'>SKU: {row['NOMOR SKU']}</p>", unsafe_allow_html=True)
-                    st.markdown(f"<p style='font-size:12px; color:#666; margin:0;'>Kat: {row['KATEGORI']}</p>", unsafe_allow_html=True)
                     st.markdown(f"<p style='font-size:14px; font-weight:bold; margin-top:5px;'>{format_rupiah(row.get('HARGA', 0))}</p>", unsafe_allow_html=True)
                     st.markdown("</div>", unsafe_allow_html=True)
 
     with t_studio:
         st.write("### 📸 Mesin Pemasang Foto Barang")
-        st.info("Pilih barang yang belum punya foto, lalu Paste link Google Drive-nya di sini.")
+        st.info("Pilih barang, lalu Paste link Google Drive-nya di sini.")
         
         df_no_pic = df_master_unique[df_master_unique['LINK GAMBAR'].astype(str).str.strip() == ""]
         if df_no_pic.empty:
-            st.success("🎉 Luar biasa! Semua barang di Master Data sudah memiliki foto!")
+            st.success("🎉 Luar biasa! Semua barang sudah memiliki foto!")
         else:
-            barang_pilih = st.selectbox("1️⃣ Pilih Nama Barang yang akan diberi foto:", df_no_pic['NAMA BAKU'].tolist())
-            link_input = st.text_input("2️⃣ Paste Link Share Google Drive (Anyone with link):", placeholder="https://drive.google.com/file/d/..../view?usp=sharing")
+            barang_pilih = st.selectbox("1️⃣ Pilih Nama Barang:", df_no_pic['NAMA BAKU'].tolist())
+            link_input = st.text_input("2️⃣ Paste Link Share Google Drive (Anyone with link):")
             
             if link_input:
                 st.write("**Preview Gambar:**")
@@ -336,25 +335,18 @@ elif menu == "E-Catalog & Studio":
                 
                 if st.button("💾 Simpan Link ke Master Data", type="primary"):
                     try:
-                        with st.spinner("Menyimpan ke Google Sheets..."):
+                        with st.spinner("Menyimpan..."):
                             client = get_gspread_client()
                             sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
-                            
-                            cell = sheet_master.find(barang_pilih, in_column=2) # NAMA BAKU ada di kolom B
+                            cell = sheet_master.find(barang_pilih, in_column=2)
                             if cell:
-                                row_idx = cell.row
                                 headers = sheet_master.row_values(1)
                                 try:
                                     col_link_idx = headers.index('LINK GAMBAR') + 1
-                                    sheet_master.update_cell(row_idx, col_link_idx, link_input)
-                                    st.success(f"Berhasil! Foto {barang_pilih} sudah terpasang. Silakan cek di Tab E-Catalog!")
-                                    time.sleep(1.5)
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                except ValueError:
-                                    st.error("Kolom 'LINK GAMBAR' belum dibuat di baris pertama Sheet 1 Anda! Buat dulu ya Bosku.")
-                    except Exception as e:
-                        st.error(f"Gagal menyimpan: {e}")
+                                    sheet_master.update_cell(cell.row, col_link_idx, link_input)
+                                    st.success(f"Berhasil!"); time.sleep(1.5); st.cache_data.clear(); st.rerun()
+                                except ValueError: st.error("Kolom 'LINK GAMBAR' belum ada di Sheet 1!")
+                    except Exception as e: st.error(f"Gagal: {e}")
 
 # ==========================================
 # MENU 4: DATABASE VENDOR
@@ -369,10 +361,9 @@ elif menu == "Database Vendor":
         for _, v in res.iterrows():
             with st.expander(f"🏢 {v.get('NAMA VENDOR', '-')} - {v.get('KATEGORI', '-')}"):
                 st.write(f"**PIC:** {v.get('PIC', '-')} | **Kontak:** {v.get('KONTAK', '-')}")
-                st.write(f"**Alamat:** {v.get('ALAMAT', '-')}")
 
 # ==========================================
-# MENU 5: DASHBOARD LAPORAN
+# MENU 5: DASHBOARD LAPORAN (PLOTLY)
 # ==========================================
 elif menu == "Dashboard Laporan":
     st.title("📊 Executive Dashboard")
@@ -384,7 +375,6 @@ elif menu == "Dashboard Laporan":
         if len(data_dash) > 1:
             df_d = pd.DataFrame(data_dash[1:], columns=data_dash[0])
             df_d.columns = df_d.columns.str.strip().str.upper()
-            
             c_po = next((c for c in df_d.columns if 'PO' in c or 'BUKTI' in c), None)
             c_unit = next((c for c in df_d.columns if 'UNIT' in c or 'GRUP' in c), None)
             c_harga = next((c for c in df_d.columns if 'HARGA' in c), None)
@@ -397,74 +387,56 @@ elif menu == "Dashboard Laporan":
                 df_d['TOTAL'] = df_d['H_NUM'] * df_d['Q_NUM']
                 
                 list_unit = ["Semua Unit Kerja"] + sorted([u for u in df_d[c_unit].unique() if str(u).strip() != ""])
-                col_f1, col_f2 = st.columns([1, 3])
-                with col_f1: filter_unit = st.selectbox("🎯 Filter Berdasarkan:", list_unit)
+                filter_unit = st.selectbox("🎯 Filter Unit:", list_unit)
                 df_filtered = df_d[df_d[c_unit] == filter_unit] if filter_unit != "Semua Unit Kerja" else df_d
                 
                 st.markdown("---")
                 col1, col2, col3 = st.columns(3)
                 col1.metric("💰 Total Belanja", format_rupiah(df_filtered['TOTAL'].sum()))
-                col2.metric("📄 Total Lembar PO", f"{df_filtered[c_po].replace('', pd.NA).dropna().nunique()} Transaksi")
+                col2.metric("📄 Total PO", f"{df_filtered[c_po].replace('', pd.NA).dropna().nunique()} Transaksi")
                 col3.metric("🏢 Unit Aktif", f"{df_filtered[c_unit].nunique()} Pabrik")
                 
                 c_a, c_b = st.columns([1, 1.5])
                 with c_a:
-                    st.write("#### 🍩 Porsi Anggaran per Pabrik")
+                    st.write("#### 🍩 Porsi Anggaran")
                     if filter_unit == "Semua Unit Kerja":
                         rekap_u = df_filtered.groupby(c_unit)['TOTAL'].sum().reset_index()
                         rekap_u = rekap_u[rekap_u[c_unit].str.strip() != ""] 
                         fig_pie = px.pie(rekap_u, names=c_unit, values='TOTAL', hole=0.5, color_discrete_sequence=px.colors.sequential.Teal)
-                        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
                         fig_pie.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
                         st.plotly_chart(fig_pie, use_container_width=True)
-                    else: st.info(f"Menampilkan data khusus untuk **{filter_unit}**.")
-
                 with c_b:
-                    st.write("#### 📊 Top 10 Barang Paling Sering Dipesan")
+                    st.write("#### 📊 Top 10 Barang")
                     df_valid = df_filtered[~df_filtered[c_baku].str.contains('CEK MANUAL|BARANG BARU', case=False, na=False)]
                     if not df_valid.empty:
-                        df_valid = df_valid[df_valid[c_baku].str.strip() != ""]
                         top_i = df_valid.groupby(c_baku)[c_po].nunique().reset_index()
                         top_i.columns = ['Nama Barang', 'Jumlah PO']
                         top_i = top_i.sort_values(by='Jumlah PO', ascending=False).head(10)
                         fig_bar = px.bar(top_i, x='Jumlah PO', y='Nama Barang', orientation='h', text='Jumlah PO', color='Jumlah PO', color_continuous_scale='Greens')
-                        fig_bar.update_traces(textposition='outside')
-                        fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, margin=dict(t=10, b=10, l=10, r=10), coloraxis_showscale=False, xaxis_title=None, yaxis_title=None)
+                        fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, margin=dict(t=10, b=10, l=10, r=10), coloraxis_showscale=False)
                         st.plotly_chart(fig_bar, use_container_width=True)
-        else: st.warning("Database transaksi masih kosong.")
-    except Exception as e: st.error(f"Dashboard Error: {e}")
+    except Exception as e: st.error(f"Error: {e}")
 
 # ==========================================
 # MENU 6: MAINTENANCE DATA
 # ==========================================
 elif menu == "Maintenance Data":
-    st.header("🛠️ Maintenance & Auto-Fill Master Data")
+    st.header("🛠️ Maintenance & Auto-Fill SKU")
     invalid_mask = df_master['NOMOR SKU'].isna() | (df_master['NOMOR SKU'].astype(str).str.strip().str.len() < 10)
     df_missing = df_master[invalid_mask]
     if not df_missing.empty:
-        st.warning(f"⚠️ Ditemukan **{len(df_missing)}** barang tanpa Nomor SKU (atau SKU tidak valid) di Master Data!")
+        st.warning(f"Ditemukan {len(df_missing)} barang tanpa SKU valid!")
         st.dataframe(df_missing[['NAMA BAKU', 'KATEGORI', 'DETAIL KATEGORI', 'NOMOR SKU']])
         if st.button("🚀 Eksekusi Auto-Fill SKU Sekarang!", type="primary", use_container_width=True):
-            with st.spinner("Memindai Sheet 1 dan menyuntikkan SKU baru secara massal..."):
-                try:
-                    client = get_gspread_client()
-                    sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
-                    all_data = sheet_master.get_all_values()
-                    headers = [str(h).strip().upper() for h in all_data[0]]
-                    df_m = pd.DataFrame(all_data[1:], columns=headers)
-                    col_sku = next((c for c in headers if 'SKU' in c), None)
-                    col_kat = next((c for c in headers if 'KATEGORI' in c and 'DETAIL' not in c), None)
-                    col_det = next((c for c in headers if 'DETAIL' in c), None)
-                    
-                    if col_sku and col_kat and col_det:
-                        for idx, row in df_m.iterrows():
-                            val_sku = str(row[col_sku]).strip()
-                            if len(val_sku) < 10 or val_sku.upper() in ['NAN', 'NONE', 'NULL', '#N/A']:
-                                new_sku = generate_new_sku("001", row[col_kat], row[col_det], current_df=df_m)
-                                df_m.at[idx, col_sku] = new_sku
-                        sheet_master.clear()
-                        sheet_master.update(values=[df_m.columns.tolist()] + df_m.values.tolist())
-                        st.success("✅ BERHASIL! Semua baris kosong di Master Data kini telah memiliki SKU 12 Digit yang valid."); time.sleep(2); st.rerun()
-                    else: st.error("Gagal mendeteksi kolom.")
-                except Exception as e: st.error(f"Terjadi kesalahan: {e}")
-    else: st.success("🎉 Database Anda sehat! Semua barang memiliki SKU 12 Digit yang valid.")
+            try:
+                client = get_gspread_client(); sm = client.open_by_key(SHEET_ID).get_worksheet(0)
+                all_data = sm.get_all_values(); h = [str(i).strip().upper() for i in all_data[0]]
+                df_m = pd.DataFrame(all_data[1:], columns=h)
+                c_sku, c_kat, c_det = h.index('NOMOR SKU'), h.index('KATEGORI'), h.index('DETAIL KATEGORI')
+                for idx, r in df_m.iterrows():
+                    if len(str(r['NOMOR SKU']).strip()) < 10:
+                        df_m.at[idx, 'NOMOR SKU'] = generate_new_sku("001", r['KATEGORI'], r['DETAIL KATEGORI'], current_df=df_m)
+                sm.clear(); sm.update(values=[df_m.columns.tolist()] + df_m.values.tolist())
+                st.success("✅ BERHASIL!"); time.sleep(2); st.rerun()
+            except Exception as e: st.error(f"Error: {e}")
+    else: st.success("🎉 Database Anda sehat!")
