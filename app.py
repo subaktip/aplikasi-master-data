@@ -143,59 +143,73 @@ if menu == "Pembersihan PO":
     if file_po:
         try:
             df_raw = pd.read_excel(file_po, header=None)
-            final_data = []
+            final_rows = []
             
             # --- MESIN 1: PARSER FORMAT ERP (Miring-Miring) ---
             if tipe_format == "Format ERP (Laporan per No Bukti)":
-                current_po, current_tgl, current_vendor, current_curr = "-", "-", "-", "RP"
+                curr_po, curr_tgl, curr_vendor, curr_money = "-", "-", "-", "RP"
                 
                 for i, row in df_raw.iterrows():
                     row_vals = [str(x).strip() for x in row.values if str(x).strip() not in ['nan', 'None', '']]
                     full_str = " | ".join(row_vals).upper()
 
-                    if not row_vals or "SUBTOTAL" in full_str or "LAPORAN PO" in full_str or "GRAND TOTAL" in full_str or "NO TRANS" in full_str:
+                    if not row_vals or any(x in full_str for x in ["SUBTOTAL", "LAPORAN PO", "GRAND TOTAL", "NO TRANS"]): 
                         continue
 
-                    # Deteksi Header Transaksi
+                    # 1. Deteksi Header Transaksi
                     if "EXCLUDE" in full_str or "INCLUDE" in full_str:
-                        current_po = row_vals[0]
+                        curr_po = row_vals[0]
+                        
+                        # Cari pola angka kalender asli
                         for val in row_vals:
-                            if "AM" in val.upper() or "PM" in val.upper() or re.match(r'\d{2}/\d{2}/\d{4}', val):
-                                current_tgl = val.split()[0]; break
-                        current_vendor = "-"
+                            m1 = re.search(r'\d{4}-\d{2}-\d{2}', val)
+                            m2 = re.search(r'\d{2}/\d{2}/\d{4}', val)
+                            if m1: curr_tgl = m1.group(0); break
+                            elif m2: curr_tgl = m2.group(0); break
+                            
+                        curr_vendor = "-"
                         for val in row_vals:
                             if " - " in val:
-                                current_vendor = val.split(" - ")[-1].strip(); break
-                        current_curr = "RP"
-                        for curr in ["RP", "EUR", "CNY", "USD"]:
-                            if curr in [v.upper() for v in row_vals]:
-                                current_curr = curr; break
+                                curr_vendor = val.split(" - ")[-1].strip(); break
+                        
+                        curr_money = "RP"
+                        for m in ["RP", "EUR", "CNY", "USD"]:
+                            if m in row_vals: curr_money = m; break
                         continue 
 
-                    # Deteksi Item Barang
-                    if current_po != "-":
-                        teks_candidates = [v for v in row_vals if not re.match(r'^[0-9.,]+$', v)]
-                        if len(teks_candidates) >= 2: nama_barang = teks_candidates[1]
-                        elif len(teks_candidates) == 1: nama_barang = teks_candidates[0]
-                        else: continue
-
-                        angka_candidates = []
-                        for v in row_vals:
-                            if re.match(r'^[0-9.,]+$', v):
-                                try: angka_candidates.append(float(v.replace('.', '').replace(',', '.')))
-                                except: pass
+                    # 2. Deteksi Item Barang & Harga
+                    if curr_po != "-":
+                        num_data = []
+                        # Tarik data dari belakang untuk menangkap deretan angka (Qty1, Qty2, Harga, Total)
+                        for v in reversed(row_vals):
+                            if re.match(r'^-?[0-9.,]+$', v):
+                                try:
+                                    v_str = str(v).strip()
+                                    # Penerjemah titik & koma yang pintar
+                                    if ',' in v_str and '.' in v_str:
+                                        if v_str.rfind(',') > v_str.rfind('.'): num_data.insert(0, float(v_str.replace('.', '').replace(',', '.')))
+                                        else: num_data.insert(0, float(v_str.replace(',', '')))
+                                    elif ',' in v_str: num_data.insert(0, float(v_str.replace(',', '.')))
+                                    else: num_data.insert(0, float(v_str))
+                                except: break
+                            else:
+                                break # Stop kalau ketemu teks
                         
-                        if len(angka_candidates) >= 2:
-                            qty = angka_candidates[0]
-                            harga = angka_candidates[2] if len(angka_candidates) >= 3 else angka_candidates[1]
+                        text_data = row_vals[:-len(num_data)] if len(num_data) > 0 else row_vals
+                        
+                        if len(text_data) >= 1 and len(num_data) >= 2:
+                            item_name = text_data[1] if len(text_data) > 1 else text_data[0]
+                            qty = num_data[0]
+                            harga = num_data[2] if len(num_data) >= 3 else num_data[1]
                             unit_final = "PBI CPR" if "ceper" in file_po.name.lower() else "PBI PML" if "pemalang" in file_po.name.lower() else unit_kerja
                             
-                            final_data.append({
-                                "UNIT KERJA": unit_final, "NO PO": current_po, "TANGGAL": current_tgl, 
-                                "VENDOR": current_vendor, "MATA UANG": current_curr, 
-                                "ITEM_KOTOR": nama_barang, "QTY": qty, "HARGA": harga
+                            final_rows.append({
+                                "UNIT KERJA": unit_final, "NO PO": curr_po, "TANGGAL": curr_tgl, 
+                                "VENDOR": curr_vendor, "MATA UANG": curr_money, 
+                                "ITEM_KOTOR": item_name, "QTY": qty, "HARGA": harga
                             })
-                df_clean = pd.DataFrame(final_data)
+                
+                df_clean = pd.DataFrame(final_rows)
 
             # --- MESIN 2: PARSER FORMAT STANDAR (Tabel Flat) ---
             else:
@@ -233,18 +247,20 @@ if menu == "Pembersihan PO":
                         if col_po and str(row[col_po]).strip().lower() != 'nan': p_saat_ini = str(row[col_po]).strip()
                         
                         if not is_empty and "JUMLAH" not in val_barang.upper() and val_barang.upper() != "RP":
-                            final_data.append({
+                            final_rows.append({
                                 "UNIT KERJA": unit_kerja, "NO PO": p_saat_ini, "TANGGAL": t_saat_ini, 
                                 "VENDOR": v_saat_ini, "MATA UANG": "RP", "ITEM_KOTOR": val_barang, 
                                 "QTY": row[col_qty] if col_qty else 0, "HARGA": row[col_harga] if col_harga else 0
                             })
-                    df_clean = pd.DataFrame(final_data)
+                    df_clean = pd.DataFrame(final_rows)
                 else:
                     df_clean = pd.DataFrame()
 
-            # --- PROSES FUZZY MATCHING (Mencari di Master Data) ---
+            # --- TAMPILAN PREVIEW & PROSES FUZZY ---
             if not df_clean.empty:
                 st.success(f"Berhasil membaca {len(df_clean)} baris item barang.")
+                st.write("**Preview Data Mentah Sebelum Dicocokkan:**")
+                st.dataframe(df_clean.head(10), use_container_width=True)
                 
                 if st.button("🚀 Proses Pembersihan & Sinkronkan ke Master Data", type="primary", use_container_width=True):
                     hasil_rows = []
@@ -269,7 +285,7 @@ if menu == "Pembersihan PO":
 
         except Exception as e: st.error(f"Error Eksekusi: {e}")
 
-    # --- TAMPILAN HASIL & UPLOAD KE DASHBOARD ---
+    # --- TAMPILAN HASIL AKHIR & UPLOAD KE DASHBOARD ---
     if 'hasil_po' in st.session_state:
         st.write("### 📄 Hasil Pembersihan")
         st.dataframe(st.session_state['hasil_po'], use_container_width=True)
