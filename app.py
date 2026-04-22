@@ -24,12 +24,8 @@ st.markdown("""
         font-family: 'Plus Jakarta Sans', sans-serif;
     }
     
-    /* Background utama dibuat off-white elegan */
-    .main { 
-        background-color: #F8FAFC; 
-    }
+    .main { background-color: #F8FAFC; }
     
-    /* Desain Metric Cards / Kotak Angka */
     .stMetric { 
         background-color: #FFFFFF; 
         padding: 24px; 
@@ -43,33 +39,14 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
     }
     
-    /* Merapikan Tab */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-    }
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        background-color: transparent;
-        border-radius: 4px 4px 0px 0px;
-        gap: 1px;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        height: 50px; white-space: pre-wrap; background-color: transparent;
+        border-radius: 4px 4px 0px 0px; gap: 1px; padding-top: 10px; padding-bottom: 10px;
     }
     
-    /* Tombol Utama */
-    .stButton>button {
-        border-radius: 8px;
-        font-weight: 600;
-        letter-spacing: 0.5px;
-        transition: all 0.3s;
-    }
-    
-    /* Judul Header */
-    h1, h2, h3 {
-        color: #0F172A;
-        font-weight: 700;
-    }
+    .stButton>button { border-radius: 8px; font-weight: 600; letter-spacing: 0.5px; transition: all 0.3s; }
+    h1, h2, h3 { color: #0F172A; font-weight: 700; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -97,14 +74,22 @@ def load_data(gid):
 # 3. HELPER FUNCTIONS
 # ==========================================
 def format_rupiah(angka):
-    try: return f"Rp {int(angka):,}".replace(',', '.')
-    except: return "Rp 0"
+    try:
+        val = str(angka).strip()
+        if val.upper() in ['NAN', 'NONE', '']: return "Rp 0"
+        num_str = re.sub(r'[^0-9]', '', val)
+        if num_str: return f"Rp {int(num_str):,}".replace(',', '.')
+        return val
+    except:
+        return "Rp 0"
 
+# --- FIX BUG LINK GAMBAR KOSONG (NaN) ---
 def convert_gdrive_link(url):
-    if not isinstance(url, str): return ""
-    match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
+    if not isinstance(url, str) or str(url).strip().lower() in ['nan', 'none', '']: 
+        return ""
+    match = re.search(r'/d/([a-zA-Z0-9_-]+)', str(url))
     if match: return f"https://drive.google.com/thumbnail?id={match.group(1)}&sz=w800"
-    return url
+    return str(url)
 
 def extract_code(text):
     try: return text.split('(')[1].split(')')[0].strip().zfill(3) 
@@ -148,10 +133,9 @@ except Exception as e:
     st.error(f"⚠️ Gagal Load Master Data: {e}"); st.stop()
 
 # ==========================================
-# 5. SIDEBAR NAVIGATION (ELEGANT DESIGN)
+# 5. SIDEBAR NAVIGATION
 # ==========================================
 with st.sidebar:
-    # Logo Typografi Corporate
     st.markdown("""
         <div style='text-align: center; padding: 10px 0 20px 0; border-bottom: 1px solid #E2E8F0; margin-bottom: 20px;'>
             <h1 style='color: #047857; font-weight: 800; margin: 0; font-size: 32px; letter-spacing: -1px;'>PANCA BUDI</h1>
@@ -162,13 +146,13 @@ with st.sidebar:
     if st.button("🔄 Sync Database", use_container_width=True):
         st.cache_data.clear(); st.rerun()
         
-    st.write("") # Spacer
+    st.write("") 
     
     menu = option_menu(
         menu_title="", 
         options=["Pembersihan PO", "Pencarian Barang", "E-Catalog & Studio", "Database Vendor", "Dashboard Laporan", "Maintenance Data"],
         icons=["magic", "search", "images", "shop", "bar-chart-line", "tools"], 
-        default_index=2, # Default ke E-Catalog biar Bosku langsung bisa cek hasilnya
+        default_index=2,
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
             "icon": {"color": "#64748B", "font-size": "18px"}, 
@@ -185,10 +169,8 @@ if menu == "Pembersihan PO":
     st.markdown("<p style='color:#64748B;'>Upload laporan ERP mentah untuk diproses secara otomatis.</p>", unsafe_allow_html=True)
     
     col_u, col_f = st.columns(2)
-    with col_u:
-        unit_kerja = st.selectbox("🏢 Unit Kerja (Default):", ["PBI CPR", "PBI PML", "PBI MAUK", "PP CUP", "PIH", "RA", "PGP", "- Auto-Detect -"])
-    with col_f:
-        tipe_format = st.radio("⚙️ Tipe Dokumen:", ["Format ERP (Laporan per No Bukti)", "Format Standar (Tabel Biasa)"])
+    with col_u: unit_kerja = st.selectbox("🏢 Unit Kerja (Default):", ["PBI CPR", "PBI PML", "PBI MAUK", "PP CUP", "PIH", "RA", "PGP", "- Auto-Detect -"])
+    with col_f: tipe_format = st.radio("⚙️ Tipe Dokumen:", ["Format ERP (Laporan per No Bukti)", "Format Standar (Tabel Biasa)"])
 
     file_po = st.file_uploader("Upload File Excel (.xlsx)", type=["xlsx", "xls"])
     
@@ -212,11 +194,9 @@ if menu == "Pembersihan PO":
                             m2 = re.search(r'\d{2}/\d{2}/\d{4}', val)
                             if m1: curr_tgl = m1.group(0); break
                             elif m2: curr_tgl = m2.group(0); break
-                            
                         curr_vendor = "-"
                         for val in row_vals:
                             if " - " in val: curr_vendor = val.split(" - ")[-1].strip(); break
-                        
                         curr_money = "RP"
                         for m in ["RP", "EUR", "CNY", "USD"]:
                             if m in row_vals: curr_money = m; break
@@ -237,13 +217,11 @@ if menu == "Pembersihan PO":
                             else: break 
                         
                         text_data = row_vals[:-len(num_data)] if len(num_data) > 0 else row_vals
-                        
                         if len(text_data) >= 1 and len(num_data) >= 2:
                             item_name = text_data[1] if len(text_data) > 1 else text_data[0]
                             qty = num_data[0]
                             harga = num_data[2] if len(num_data) >= 3 else num_data[1]
                             unit_final = "PBI CPR" if "ceper" in file_po.name.lower() else "PBI PML" if "pemalang" in file_po.name.lower() else unit_kerja
-                            
                             final_rows.append({"UNIT KERJA": unit_final, "NO PO": curr_po, "TANGGAL": curr_tgl, "VENDOR": curr_vendor, "MATA UANG": curr_money, "ITEM_KOTOR": item_name, "QTY": qty, "HARGA": harga})
                 df_clean = pd.DataFrame(final_rows)
             else:
@@ -270,7 +248,6 @@ if menu == "Pembersihan PO":
     if 'hasil_po' in st.session_state:
         st.markdown("### 📑 Review Hasil Pembersihan")
         st.dataframe(st.session_state['hasil_po'], use_container_width=True)
-        
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             if st.button("💾 Simpan ke Database Induk", type="primary", use_container_width=True):
@@ -290,14 +267,13 @@ if menu == "Pembersihan PO":
 elif menu == "Pencarian Barang":
     st.markdown("<h2>🔍 Global Search Engine</h2>", unsafe_allow_html=True)
     kata_cari = st.text_input("Ketik Kata Kunci (Nama Barang / SKU):")
-    
     if kata_cari:
         hasil = process.extract(kata_cari, list_lookup, scorer=fuzz.token_set_ratio, limit=10)
         res_list = []
         for m in hasil:
             if m[1] >= 40:
                 baku = lookup_to_baku[m[0]]; info = master_map.get(baku, {})
-                res_list.append({"Match": f"{m[1]}%", "Nama Baku": baku, "SKU": info.get('NOMOR SKU', '-'), "Kategori": info.get('KATEGORI', '-'), "Est. Harga": info.get('HARGA', '-'), "Last Vendor": info.get('VENDOR', '-')})
+                res_list.append({"Match": f"{m[1]}%", "Nama Baku": baku, "SKU": info.get('NOMOR SKU', '-'), "Kategori": info.get('KATEGORI', '-'), "Est. Harga": format_rupiah(info.get('HARGA', 0)), "Last Vendor": info.get('VENDOR', '-')})
         st.dataframe(pd.DataFrame(res_list), use_container_width=True)
 
 # ==========================================
@@ -309,22 +285,17 @@ elif menu == "E-Catalog & Studio":
     
     with t_cat:
         col_s, col_f = st.columns([2, 1])
-        with col_s: 
-            search_cat = st.text_input("🔍 Cari Produk:")
+        with col_s: search_cat = st.text_input("🔍 Cari Produk:")
         with col_f:
             list_kat = ["All Categories"] + sorted([k for k in df_master_unique['KATEGORI'].unique() if str(k).strip() != ""])
             filter_cat = st.selectbox("📁 Kategori:", list_kat)
         
         df_show = df_master_unique.copy()
-        if filter_cat != "All Categories": 
-            df_show = df_show[df_show['KATEGORI'] == filter_cat]
-        if search_cat: 
-            df_show = df_show[df_show['NAMA BAKU'].astype(str).str.contains(search_cat, case=False) | df_show['NOMOR SKU'].astype(str).str.contains(search_cat, case=False)]
+        if filter_cat != "All Categories": df_show = df_show[df_show['KATEGORI'] == filter_cat]
+        if search_cat: df_show = df_show[df_show['NAMA BAKU'].astype(str).str.contains(search_cat, case=False) | df_show['NOMOR SKU'].astype(str).str.contains(search_cat, case=False)]
         
         st.markdown("---")
-        
-        if df_show.empty: 
-            st.warning("Data tidak ditemukan.")
+        if df_show.empty: st.warning("Data tidak ditemukan.")
         else:
             cols = st.columns(4)
             for idx, (_, row) in enumerate(df_show.iterrows()):
@@ -332,7 +303,6 @@ elif menu == "E-Catalog & Studio":
                     raw_link = str(row.get('LINK GAMBAR', '')).strip()
                     img_url = convert_gdrive_link(raw_link)
                     
-                    # RAKIT FULL HTML CARD (Solusi kotak melayang)
                     if img_url and "drive.google" in img_url:
                         img_element = f"<img src='{img_url}' style='width:100%; height:160px; object-fit:contain; border-radius:8px; margin-bottom:12px;'>"
                     else:
@@ -350,7 +320,14 @@ elif menu == "E-Catalog & Studio":
 
     with t_studio:
         st.write("### 📸 Inject Image Asset")
-        df_no_pic = df_master_unique[df_master_unique['LINK GAMBAR'].astype(str).str.strip() == ""]
+        
+        # --- FIX BUG: DETEKSI KOLOM KOSONG ATAU "NaN" ---
+        if 'LINK GAMBAR' not in df_master_unique.columns:
+            df_master_unique['LINK GAMBAR'] = ""
+            
+        empty_mask = df_master_unique['LINK GAMBAR'].isna() | df_master_unique['LINK GAMBAR'].astype(str).str.strip().str.lower().isin(['', 'nan', 'none'])
+        df_no_pic = df_master_unique[empty_mask]
+        
         if df_no_pic.empty: 
             st.success("Semua aset visual sudah lengkap.")
         else:
@@ -364,9 +341,13 @@ elif menu == "E-Catalog & Studio":
                             client = get_gspread_client(); sheet_master = client.open_by_key(SHEET_ID).get_worksheet(0)
                             cell = sheet_master.find(barang_pilih, in_column=2)
                             if cell:
-                                col_link_idx = sheet_master.row_values(1).index('LINK GAMBAR') + 1
-                                sheet_master.update_cell(cell.row, col_link_idx, link_input)
-                                st.success(f"Success!"); time.sleep(1); st.cache_data.clear(); st.rerun()
+                                headers = sheet_master.row_values(1)
+                                if 'LINK GAMBAR' in headers:
+                                    col_link_idx = headers.index('LINK GAMBAR') + 1
+                                    sheet_master.update_cell(cell.row, col_link_idx, link_input)
+                                    st.success(f"Success!"); time.sleep(1); st.cache_data.clear(); st.rerun()
+                                else:
+                                    st.error("Kolom 'LINK GAMBAR' belum dibuat di baris 1 Sheet 1 Anda.")
                     except Exception as e: st.error(f"Error: {e}")
 
 # ==========================================
@@ -386,7 +367,7 @@ elif menu == "Database Vendor":
         except: st.warning("Database Connection Error.")
 
 # ==========================================
-# MENU 5: DASHBOARD LAPORAN (ELEGANT SAAS UI)
+# MENU 5: DASHBOARD LAPORAN
 # ==========================================
 elif menu == "Dashboard Laporan":
     st.markdown("<h2>📊 Procurement Intelligence</h2>", unsafe_allow_html=True)
@@ -419,7 +400,7 @@ elif menu == "Dashboard Laporan":
                 filter_unit = st.selectbox("📍 Select Facility:", list_unit)
                 df_filtered = df_d[df_d[c_unit] == filter_unit] if filter_unit != "All Facilities" else df_d
                 
-                st.write("") # Spacer
+                st.write("") 
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Total Procurement Value", format_rupiah(df_filtered['TOTAL'].sum()))
                 col2.metric("PO Transactions", f"{df_filtered[c_po].replace('', pd.NA).dropna().nunique()}")
