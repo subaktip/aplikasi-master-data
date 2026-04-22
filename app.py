@@ -151,7 +151,7 @@ except Exception as e:
 # 5. SIDEBAR NAVIGATION (ELEGANT DESIGN)
 # ==========================================
 with st.sidebar:
-    # Logo Typografi Corporate (Ganti gambar tas/baju)
+    # Logo Typografi Corporate
     st.markdown("""
         <div style='text-align: center; padding: 10px 0 20px 0; border-bottom: 1px solid #E2E8F0; margin-bottom: 20px;'>
             <h1 style='color: #047857; font-weight: 800; margin: 0; font-size: 32px; letter-spacing: -1px;'>PANCA BUDI</h1>
@@ -168,7 +168,7 @@ with st.sidebar:
         menu_title="", 
         options=["Pembersihan PO", "Pencarian Barang", "E-Catalog & Studio", "Database Vendor", "Dashboard Laporan", "Maintenance Data"],
         icons=["magic", "search", "images", "shop", "bar-chart-line", "tools"], 
-        default_index=4, # Saya set default ke Dashboard agar Bosku langsung lihat hasil elegan-nya
+        default_index=2, # Default ke E-Catalog biar Bosku langsung bisa cek hasilnya
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
             "icon": {"color": "#64748B", "font-size": "18px"}, 
@@ -309,35 +309,50 @@ elif menu == "E-Catalog & Studio":
     
     with t_cat:
         col_s, col_f = st.columns([2, 1])
-        with col_s: search_cat = st.text_input("🔍 Cari Produk:")
+        with col_s: 
+            search_cat = st.text_input("🔍 Cari Produk:")
         with col_f:
             list_kat = ["All Categories"] + sorted([k for k in df_master_unique['KATEGORI'].unique() if str(k).strip() != ""])
             filter_cat = st.selectbox("📁 Kategori:", list_kat)
         
         df_show = df_master_unique.copy()
-        if filter_cat != "All Categories": df_show = df_show[df_show['KATEGORI'] == filter_cat]
-        if search_cat: df_show = df_show[df_show['NAMA BAKU'].astype(str).str.contains(search_cat, case=False) | df_show['NOMOR SKU'].astype(str).str.contains(search_cat, case=False)]
+        if filter_cat != "All Categories": 
+            df_show = df_show[df_show['KATEGORI'] == filter_cat]
+        if search_cat: 
+            df_show = df_show[df_show['NAMA BAKU'].astype(str).str.contains(search_cat, case=False) | df_show['NOMOR SKU'].astype(str).str.contains(search_cat, case=False)]
         
         st.markdown("---")
-        if df_show.empty: st.warning("Data tidak ditemukan.")
+        
+        if df_show.empty: 
+            st.warning("Data tidak ditemukan.")
         else:
             cols = st.columns(4)
             for idx, (_, row) in enumerate(df_show.iterrows()):
                 with cols[idx % 4]:
                     raw_link = str(row.get('LINK GAMBAR', '')).strip()
                     img_url = convert_gdrive_link(raw_link)
-                    st.markdown(f"<div style='background:white; border:1px solid #E2E8F0; border-radius:12px; padding:16px; margin-bottom:16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
-                    if img_url and "drive.google" in img_url: st.image(img_url, use_column_width=True)
-                    else: st.markdown(f"<div style='background-color:#F1F5F9; height:150px; border-radius:8px; display:flex; align-items:center; justify-content:center;'><span style='color:#94A3B8; font-weight:600;'>No Image Asset</span></div>", unsafe_allow_html=True)
-                    st.markdown(f"<h5 style='margin-top:12px; font-size:14px; font-weight:700; color:#0F172A; line-height:1.4;'>{row['NAMA BAKU']}</h5>", unsafe_allow_html=True)
-                    st.markdown(f"<p style='font-size:11px; color:#64748B; margin:4px 0;'>SKU: {row['NOMOR SKU']}</p>", unsafe_allow_html=True)
-                    st.markdown(f"<p style='font-size:15px; font-weight:800; color:#047857; margin-top:8px;'>{format_rupiah(row.get('HARGA', 0))}</p>", unsafe_allow_html=True)
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    # RAKIT FULL HTML CARD (Solusi kotak melayang)
+                    if img_url and "drive.google" in img_url:
+                        img_element = f"<img src='{img_url}' style='width:100%; height:160px; object-fit:contain; border-radius:8px; margin-bottom:12px;'>"
+                    else:
+                        img_element = f"<div style='background-color:#F1F5F9; height:160px; border-radius:8px; display:flex; align-items:center; justify-content:center; margin-bottom:12px;'><span style='color:#94A3B8; font-weight:600;'>No Image Asset</span></div>"
+                    
+                    card_html = f"""
+                    <div style='background:white; border:1px solid #E2E8F0; border-radius:12px; padding:16px; margin-bottom:16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: 0.3s;'>
+                        {img_element}
+                        <h5 style='margin-top:0px; font-size:14px; font-weight:700; color:#0F172A; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;'>{row['NAMA BAKU']}</h5>
+                        <p style='font-size:11px; color:#64748B; margin:4px 0;'>SKU: {row['NOMOR SKU']}</p>
+                        <p style='font-size:15px; font-weight:800; color:#047857; margin-top:8px; margin-bottom:0px;'>{format_rupiah(row.get('HARGA', 0))}</p>
+                    </div>
+                    """
+                    st.markdown(card_html, unsafe_allow_html=True)
 
     with t_studio:
         st.write("### 📸 Inject Image Asset")
         df_no_pic = df_master_unique[df_master_unique['LINK GAMBAR'].astype(str).str.strip() == ""]
-        if df_no_pic.empty: st.success("Semua aset visual sudah lengkap.")
+        if df_no_pic.empty: 
+            st.success("Semua aset visual sudah lengkap.")
         else:
             barang_pilih = st.selectbox("Pilih Produk:", df_no_pic['NAMA BAKU'].tolist())
             link_input = st.text_input("G-Drive Link:")
