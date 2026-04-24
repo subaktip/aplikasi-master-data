@@ -83,10 +83,8 @@ def format_rupiah(angka):
     except:
         return "Rp 0"
 
-# --- FIX BUG LINK GAMBAR KOSONG (NaN) ---
 def convert_gdrive_link(url):
-    if not isinstance(url, str) or str(url).strip().lower() in ['nan', 'none', '']: 
-        return ""
+    if not isinstance(url, str) or str(url).strip().lower() in ['nan', 'none', '']: return ""
     match = re.search(r'/d/([a-zA-Z0-9_-]+)', str(url))
     if match: return f"https://drive.google.com/thumbnail?id={match.group(1)}&sz=w800"
     return str(url)
@@ -152,7 +150,7 @@ with st.sidebar:
         menu_title="", 
         options=["Pembersihan PO", "Pencarian Barang", "E-Catalog & Studio", "Database Vendor", "Dashboard Laporan", "Maintenance Data"],
         icons=["magic", "search", "images", "shop", "bar-chart-line", "tools"], 
-        default_index=2,
+        default_index=4,
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
             "icon": {"color": "#64748B", "font-size": "18px"}, 
@@ -320,16 +318,12 @@ elif menu == "E-Catalog & Studio":
 
     with t_studio:
         st.write("### 📸 Inject Image Asset")
-        
-        # --- FIX BUG: DETEKSI KOLOM KOSONG ATAU "NaN" ---
-        if 'LINK GAMBAR' not in df_master_unique.columns:
-            df_master_unique['LINK GAMBAR'] = ""
+        if 'LINK GAMBAR' not in df_master_unique.columns: df_master_unique['LINK GAMBAR'] = ""
             
         empty_mask = df_master_unique['LINK GAMBAR'].isna() | df_master_unique['LINK GAMBAR'].astype(str).str.strip().str.lower().isin(['', 'nan', 'none'])
         df_no_pic = df_master_unique[empty_mask]
         
-        if df_no_pic.empty: 
-            st.success("Semua aset visual sudah lengkap.")
+        if df_no_pic.empty: st.success("Semua aset visual sudah lengkap.")
         else:
             barang_pilih = st.selectbox("Pilih Produk:", df_no_pic['NAMA BAKU'].tolist())
             link_input = st.text_input("G-Drive Link:")
@@ -346,8 +340,7 @@ elif menu == "E-Catalog & Studio":
                                     col_link_idx = headers.index('LINK GAMBAR') + 1
                                     sheet_master.update_cell(cell.row, col_link_idx, link_input)
                                     st.success(f"Success!"); time.sleep(1); st.cache_data.clear(); st.rerun()
-                                else:
-                                    st.error("Kolom 'LINK GAMBAR' belum dibuat di baris 1 Sheet 1 Anda.")
+                                else: st.error("Kolom 'LINK GAMBAR' belum ada di baris pertama Sheet 1 Anda.")
                     except Exception as e: st.error(f"Error: {e}")
 
 # ==========================================
@@ -367,7 +360,7 @@ elif menu == "Database Vendor":
         except: st.warning("Database Connection Error.")
 
 # ==========================================
-# MENU 5: DASHBOARD LAPORAN
+# MENU 5: DASHBOARD LAPORAN (MULTI-ITEM COMPARISON)
 # ==========================================
 elif menu == "Dashboard Laporan":
     st.markdown("<h2>📊 Procurement Intelligence</h2>", unsafe_allow_html=True)
@@ -393,7 +386,7 @@ elif menu == "Dashboard Laporan":
             df_d['DATE_CLEAN'] = pd.to_datetime(df_d[c_tgl], errors='coerce')
             df_d = df_d.dropna(subset=['DATE_CLEAN'])
             
-            tab_summary, tab_item = st.tabs(["🌐 Corporate Overview", "🔎 Item Analytics"])
+            tab_summary, tab_item = st.tabs(["🌐 Corporate Overview", "🔎 Item Analytics (Multi-Select)"])
             
             with tab_summary:
                 list_unit = ["All Facilities"] + sorted([u for u in df_d[c_unit].unique() if str(u).strip() != ""])
@@ -433,66 +426,101 @@ elif menu == "Dashboard Laporan":
             
             with tab_item:
                 list_barang_histori = df_d.drop_duplicates(subset=[c_baku]).sort_values(by=c_baku)[c_baku].tolist()
-                barang_pilih = st.selectbox("Search Product Intelligence:", list_barang_histori, placeholder="Type to search...")
+                
+                # --- UPDATE: DARI SELECTBOX MENJADI MULTISELECT ---
+                barang_pilih = st.multiselect("Search Product Intelligence (Bisa pilih lebih dari 1 untuk perbandingan):", list_barang_histori, placeholder="Pilih barang untuk dianalisa...")
                 
                 if barang_pilih:
-                    info_master = df_master_unique[df_master_unique['NAMA BAKU'] == barang_pilih]
-                    df_item_histori = df_d[df_d[c_baku] == barang_pilih].sort_values(by='DATE_CLEAN')
-                    
-                    kat_item = "NAN"
-                    if not info_master.empty: kat_item = str(info_master.iloc[0].get('KATEGORI', '')).upper()
+                    # Ambil histori untuk SEMUA barang yang dipilih
+                    df_item_histori = df_d[df_d[c_baku].isin(barang_pilih)].sort_values(by='DATE_CLEAN')
 
-                    v_histori = sorted([str(v).strip() for v in df_item_histori['VENDOR'].unique() if str(v).strip() not in ['', '-', 'nan']])
-                    v_database = []
-                    if kat_item != "NAN" and not df_v.empty:
-                        v_match = df_v[df_v['KATEGORI'].astype(str).str.contains(kat_item, case=False, na=False)]
-                        v_database = sorted(v_match['NAMA VENDOR'].unique().tolist())
+                    # LOGIKA 1: JIKA HANYA 1 BARANG (DEEP DIVE / SINGLE VIEW)
+                    if len(barang_pilih) == 1:
+                        item_tunggal = barang_pilih[0]
+                        info_master = df_master_unique[df_master_unique['NAMA BAKU'] == item_tunggal]
+                        kat_item = "NAN"
+                        if not info_master.empty: kat_item = str(info_master.iloc[0].get('KATEGORI', '')).upper()
 
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    c_img, c_meta = st.columns([1, 2.5])
-                    with c_img:
-                        if not info_master.empty:
-                            img_url = convert_gdrive_link(str(info_master.iloc[0].get('LINK GAMBAR', '')).strip())
-                            if img_url: st.markdown(f"<div style='border:1px solid #E2E8F0; border-radius:12px; padding:10px; background:white;'><img src='{img_url}' width='100%' style='border-radius:8px;'></div>", unsafe_allow_html=True)
-                            else: st.info("🚫 No Asset")
-                    with c_meta:
-                        st.markdown(f"<h3 style='margin-top:0; color:#0F172A;'>{barang_pilih}</h3>", unsafe_allow_html=True)
-                        if not info_master.empty:
-                            row_m = info_master.iloc[0]
-                            st.markdown(f"<p style='color:#64748B; font-weight:600; margin-bottom:15px;'>SKU: <span style='color:#047857;'>{row_m.get('NOMOR SKU', '-')}</span> &nbsp;|&nbsp; CAT: {kat_item} &nbsp;|&nbsp; UOM: {row_m.get('SATUAN', '-')}</p>", unsafe_allow_html=True)
-                            
-                            st.markdown("**🏭 Histori Supplier (Telah Digunakan):**")
-                            st.markdown(f"<div style='background-color:#F8FAFC; border:1px solid #E2E8F0; padding:10px; border-radius:8px; font-size:14px;'>{', '.join(v_histori) if v_histori else 'Belum ada transaksi'}</div>", unsafe_allow_html=True)
-                            
-                            st.markdown("<br>**💡 Rekomendasi Supplier (Database Match):**", unsafe_allow_html=True)
-                            st.markdown(f"<div style='background-color:#ECFDF5; border:1px solid #A7F3D0; padding:10px; border-radius:8px; font-size:14px; color:#065F46;'>{', '.join(v_database) if v_database else 'Tidak ada referensi di database'}</div>", unsafe_allow_html=True)
-                    
-                    st.markdown("<hr style='border:1px solid #E2E8F0; margin: 30px 0;'>", unsafe_allow_html=True)
-                    
-                    if not df_item_histori.empty:
-                        m1, m2, m3, m4 = st.columns(4)
-                        m1.metric("Item TCO (Total Cost)", format_rupiah(df_item_histori['TOTAL'].sum()))
-                        m2.metric("Purchase Frequency", f"{df_item_histori[c_po].nunique()} Orders")
-                        m3.metric("Average Unit Price", format_rupiah(df_item_histori['H_NUM'].mean()))
-                        m4.metric("Supplier Count", f"{len(v_histori)} Vendors")
+                        v_histori = sorted([str(v).strip() for v in df_item_histori['VENDOR'].unique() if str(v).strip() not in ['', '-', 'nan']])
+                        v_database = []
+                        if kat_item != "NAN" and not df_v.empty:
+                            v_match = df_v[df_v['KATEGORI'].astype(str).str.contains(kat_item, case=False, na=False)]
+                            v_database = sorted(v_match['NAMA VENDOR'].unique().tolist())
 
-                        st.write("")
-                        g_harga, g_qty = st.columns(2)
-                        with g_harga:
-                            fig_harga = px.line(df_item_histori, x='DATE_CLEAN', y='H_NUM', title="Price Volatility Trend", markers=True, color_discrete_sequence=['#F59E0B'])
-                            fig_harga.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="", yaxis_title="Price (IDR)")
-                            st.plotly_chart(fig_harga, use_container_width=True)
-                        with g_qty:
-                            df_monthly = df_item_histori.resample('M', on='DATE_CLEAN').sum().reset_index()
-                            fig_qty = px.bar(df_monthly, x='DATE_CLEAN', y='Q_NUM', title="Procurement Volume by Month", color_discrete_sequence=['#3B82F6'])
-                            fig_qty.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="", yaxis_title="Quantity")
-                            st.plotly_chart(fig_qty, use_container_width=True)
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        c_img, c_meta = st.columns([1, 2.5])
+                        with c_img:
+                            if not info_master.empty:
+                                img_url = convert_gdrive_link(str(info_master.iloc[0].get('LINK GAMBAR', '')).strip())
+                                if img_url: st.markdown(f"<div style='border:1px solid #E2E8F0; border-radius:12px; padding:10px; background:white;'><img src='{img_url}' width='100%' style='border-radius:8px;'></div>", unsafe_allow_html=True)
+                                else: st.info("🚫 No Asset")
+                        with c_meta:
+                            st.markdown(f"<h3 style='margin-top:0; color:#0F172A;'>{item_tunggal}</h3>", unsafe_allow_html=True)
+                            if not info_master.empty:
+                                row_m = info_master.iloc[0]
+                                st.markdown(f"<p style='color:#64748B; font-weight:600; margin-bottom:15px;'>SKU: <span style='color:#047857;'>{row_m.get('NOMOR SKU', '-')}</span> &nbsp;|&nbsp; CAT: {kat_item} &nbsp;|&nbsp; UOM: {row_m.get('SATUAN', '-')}</p>", unsafe_allow_html=True)
+                                st.markdown("**🏭 Histori Supplier (Telah Digunakan):**")
+                                st.markdown(f"<div style='background-color:#F8FAFC; border:1px solid #E2E8F0; padding:10px; border-radius:8px; font-size:14px;'>{', '.join(v_histori) if v_histori else 'Belum ada transaksi'}</div>", unsafe_allow_html=True)
+                                st.markdown("<br>**💡 Rekomendasi Supplier (Database Match):**", unsafe_allow_html=True)
+                                st.markdown(f"<div style='background-color:#ECFDF5; border:1px solid #A7F3D0; padding:10px; border-radius:8px; font-size:14px; color:#065F46;'>{', '.join(v_database) if v_database else 'Tidak ada referensi di database'}</div>", unsafe_allow_html=True)
                         
-                        st.markdown("<h4 style='font-size:16px; color:#334155; margin-bottom:10px;'>Transaction Ledger</h4>", unsafe_allow_html=True)
-                        df_table = df_item_histori[[c_tgl, c_po, c_unit, 'VENDOR', 'QTY', 'H_NUM', 'TOTAL']].copy()
-                        df_table['H_NUM'] = df_table['H_NUM'].map(format_rupiah)
-                        df_table['TOTAL'] = df_table['TOTAL'].map(format_rupiah)
-                        st.dataframe(df_table, use_container_width=True, hide_index=True)
+                        st.markdown("<hr style='border:1px solid #E2E8F0; margin: 30px 0;'>", unsafe_allow_html=True)
+                        
+                        if not df_item_histori.empty:
+                            m1, m2, m3, m4 = st.columns(4)
+                            m1.metric("Item TCO (Total Cost)", format_rupiah(df_item_histori['TOTAL'].sum()))
+                            m2.metric("Purchase Frequency", f"{df_item_histori[c_po].nunique()} Orders")
+                            m3.metric("Average Unit Price", format_rupiah(df_item_histori['H_NUM'].mean()))
+                            m4.metric("Supplier Count", f"{len(v_histori)} Vendors")
+
+                            st.write("")
+                            g_harga, g_qty = st.columns(2)
+                            with g_harga:
+                                fig_harga = px.line(df_item_histori, x='DATE_CLEAN', y='H_NUM', title="Price Volatility Trend", markers=True, color_discrete_sequence=['#F59E0B'])
+                                fig_harga.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="", yaxis_title="Price (IDR)")
+                                st.plotly_chart(fig_harga, use_container_width=True)
+                            with g_qty:
+                                df_monthly = df_item_histori.groupby(pd.Grouper(key='DATE_CLEAN', freq='ME'))['Q_NUM'].sum().reset_index()
+                                fig_qty = px.bar(df_monthly, x='DATE_CLEAN', y='Q_NUM', title="Procurement Volume by Month", color_discrete_sequence=['#3B82F6'])
+                                fig_qty.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="", yaxis_title="Quantity")
+                                st.plotly_chart(fig_qty, use_container_width=True)
+                            
+                            st.markdown("<h4 style='font-size:16px; color:#334155; margin-bottom:10px;'>Transaction Ledger</h4>", unsafe_allow_html=True)
+                            df_table = df_item_histori[[c_tgl, c_po, c_unit, 'VENDOR', 'QTY', 'H_NUM', 'TOTAL']].copy()
+                            df_table['H_NUM'] = df_table['H_NUM'].map(format_rupiah)
+                            df_table['TOTAL'] = df_table['TOTAL'].map(format_rupiah)
+                            st.dataframe(df_table, use_container_width=True, hide_index=True)
+
+                    # LOGIKA 2: JIKA PILIH > 1 BARANG (COMPARISON MODE)
+                    else:
+                        st.markdown("<br><h3>⚖️ Multi-Item Comparative Analysis</h3>", unsafe_allow_html=True)
+                        st.markdown("<hr style='border:1px solid #E2E8F0; margin: 10px 0 20px 0;'>", unsafe_allow_html=True)
+                        
+                        if not df_item_histori.empty:
+                            m1, m2, m3, m4 = st.columns(4)
+                            m1.metric("Combined TCO", format_rupiah(df_item_histori['TOTAL'].sum()))
+                            m2.metric("Total Transactions", f"{df_item_histori[c_po].nunique()} Orders")
+                            m3.metric("Items Compared", f"{len(barang_pilih)} Items")
+                            m4.metric("Total Vendors Involved", f"{df_item_histori['VENDOR'].nunique()} Vendors")
+
+                            st.write("")
+                            g_harga, g_qty = st.columns(2)
+                            with g_harga:
+                                fig_harga = px.line(df_item_histori, x='DATE_CLEAN', y='H_NUM', color=c_baku, title="Price Volatility Comparison", markers=True)
+                                fig_harga.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="", yaxis_title="Price (IDR)", legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5, title=""))
+                                st.plotly_chart(fig_harga, use_container_width=True)
+                            with g_qty:
+                                df_monthly = df_item_histori.groupby([pd.Grouper(key='DATE_CLEAN', freq='ME'), c_baku])['Q_NUM'].sum().reset_index()
+                                fig_qty = px.bar(df_monthly, x='DATE_CLEAN', y='Q_NUM', color=c_baku, barmode='group', title="Volume Comparison by Month")
+                                fig_qty.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="", yaxis_title="Quantity", legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5, title=""))
+                                st.plotly_chart(fig_qty, use_container_width=True)
+                            
+                            st.markdown("<h4 style='font-size:16px; color:#334155; margin-bottom:10px;'>Combined Transaction Ledger</h4>", unsafe_allow_html=True)
+                            df_table = df_item_histori[[c_tgl, c_po, c_baku, c_unit, 'VENDOR', 'QTY', 'H_NUM', 'TOTAL']].copy()
+                            df_table.rename(columns={c_baku: 'NAMA BARANG'}, inplace=True) # Biar nama header tabel lebih rapi
+                            df_table['H_NUM'] = df_table['H_NUM'].map(format_rupiah)
+                            df_table['TOTAL'] = df_table['TOTAL'].map(format_rupiah)
+                            st.dataframe(df_table, use_container_width=True, hide_index=True)
 
         else: st.warning("Data Repository Empty.")
             
